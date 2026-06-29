@@ -1,0 +1,134 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --header-h: 76px;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-cream text-graphite font-body antialiased;
+    background-image:
+      radial-gradient(1200px 600px at 80% -10%, rgba(212, 163, 115, 0.12), transparent 60%),
+      radial-gradient(900px 500px at -10% 20%, rgba(234, 219, 200, 0.4), transparent 55%);
+    background-attachment: fixed;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-display text-ink;
+    letter-spacing: -0.01em;
+  }
+
+  ::selection {
+    background: rgba(212, 163, 115, 0.3);
+    color: #2c2c2c;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #f3ece2;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #d4a373;
+    border-radius: 999px;
+    border: 2px solid #f3ece2;
+  }
+}
+
+@layer components {
+  /* Glassmorphism surface */
+  .glass {
+    @apply border border-white/40 bg-white/55 backdrop-blur-xl;
+    box-shadow: 0 8px 32px -12px rgba(44, 44, 44, 0.2);
+  }
+
+  .glass-dark {
+    @apply border border-white/10 bg-ink/60 text-cream backdrop-blur-xl;
+  }
+
+  /* Luxury section padding */
+  .section {
+    @apply py-20 md:py-28;
+  }
+
+  /* Eyebrow label */
+  .eyebrow {
+    @apply font-button text-xs uppercase tracking-[0.28em] text-gold-deep;
+  }
+
+  /* Gradient gold text */
+  .text-gold-gradient {
+    background: linear-gradient(120deg, #b07f4f, #d4a373 45%, #e4c8a8);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Skeleton shimmer */
+  .skeleton {
+    @apply relative overflow-hidden bg-sand/60;
+  }
+  .skeleton::after {
+    @apply absolute inset-0 -translate-x-full animate-shimmer;
+    content: '';
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.6),
+      transparent
+    );
+  }
+}
+
+@layer utilities {
+  .container-lux {
+    @apply mx-auto w-full max-w-7xl px-5 sm:px-8 lg:px-10;
+  }
+
+  .lift {
+    @apply transition-all duration-500 ease-lux hover:-translate-y-1.5 hover:shadow-card;
+  }
+
+  /* Dual-thumb range slider thumbs (interactive over a shared track) */
+  .range-thumb::-webkit-slider-thumb {
+    pointer-events: auto;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 20px;
+    width: 20px;
+    border-radius: 9999px;
+    background: #fff;
+    border: 3px solid #d4a373;
+    box-shadow: 0 2px 8px rgba(44, 44, 44, 0.25);
+    cursor: pointer;
+  }
+  .range-thumb::-moz-range-thumb {
+    pointer-events: auto;
+    height: 18px;
+    width: 18px;
+    border-radius: 9999px;
+    background: #fff;
+    border: 3px solid #d4a373;
+    box-shadow: 0 2px 8px rgba(44, 44, 44, 0.25);
+    cursor: pointer;
+  }
+  .range-thumb::-webkit-slider-runnable-track {
+    background: transparent;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}

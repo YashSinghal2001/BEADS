@@ -1,0 +1,69 @@
+import dotenv from 'dotenv'
+import { z } from 'zod'
+
+dotenv.config()
+
+/**
+ * Validate and normalise environment variables once at boot.
+ * Integration secrets (Cloudinary/Razorpay/Shiprocket) are optional so the
+ * server runs without them — features gate on `config.features.*`.
+ */
+const schema = z.object({
+  PORT: z.coerce.number().default(5000),
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+
+  MONGODB_URI: z.string().min(1, 'MONGODB_URI is required'),
+
+  JWT_SECRET: z.string().min(10, 'JWT_SECRET must be set (min 10 chars)'),
+  JWT_REFRESH_SECRET: z.string().min(10, 'JWT_REFRESH_SECRET must be set (min 10 chars)'),
+  JWT_ACCESS_EXPIRES: z.string().default('15m'),
+  JWT_REFRESH_EXPIRES: z.string().default('30d'),
+
+  CLIENT_URL: z.string().default('http://localhost:5173'),
+  COOKIE_DOMAIN: z.string().optional(),
+
+  CLOUDINARY_NAME: z.string().optional(),
+  CLOUDINARY_KEY: z.string().optional(),
+  CLOUDINARY_SECRET: z.string().optional(),
+
+  RAZORPAY_KEY_ID: z.string().optional(),
+  RAZORPAY_SECRET: z.string().optional(),
+  RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
+
+  SHIPROCKET_EMAIL: z.string().optional(),
+  SHIPROCKET_PASSWORD: z.string().optional(),
+  SHIPROCKET_WEBHOOK_TOKEN: z.string().optional(),
+
+  COMPANY_GSTIN: z.string().default('29ABCDE1234F1Z5'),
+  COMPANY_NAME: z.string().default('YS Creations'),
+
+  SEED_ADMIN_EMAIL: z.string().email().default('admin@yscreations.com'),
+  SEED_ADMIN_PASSWORD: z.string().default('Admin@12345'),
+})
+
+const parsed = schema.safeParse(process.env)
+
+if (!parsed.success) {
+  const issues = parsed.error.issues.map((i) => `  • ${i.path.join('.')}: ${i.message}`).join('\n')
+  // eslint-disable-next-line no-console
+  console.error(`\n❌ Invalid environment configuration:\n${issues}\n`)
+  process.exit(1)
+}
+
+const env = parsed.data
+
+const has = (...keys) => keys.every((k) => !!env[k])
+
+export const config = {
+  ...env,
+  isProd: env.NODE_ENV === 'production',
+  isTest: env.NODE_ENV === 'test',
+  clientOrigins: env.CLIENT_URL.split(',').map((s) => s.trim()).filter(Boolean),
+  features: {
+    cloudinary: has('CLOUDINARY_NAME', 'CLOUDINARY_KEY', 'CLOUDINARY_SECRET'),
+    razorpay: has('RAZORPAY_KEY_ID', 'RAZORPAY_SECRET'),
+    shiprocket: has('SHIPROCKET_EMAIL', 'SHIPROCKET_PASSWORD'),
+  },
+}
+
+export default config
