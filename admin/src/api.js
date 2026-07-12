@@ -91,7 +91,7 @@ export const api = {
   couponAnalytics: () => client.get('/admin/coupons/analytics').then(d),
 
   // products
-  products: (params) => client.get('/products', { params }).then(dm),
+  products: (params) => client.get('/products', { params: { includeInactive: 'true', ...params } }).then(dm),
   product: (slug) => client.get(`/products/${slug}`).then(d),
   createProduct: (body) => client.post('/products', body).then(d),
   updateProduct: (id, body) => client.patch(`/products/${id}`, body).then(d),
@@ -136,8 +136,6 @@ export const api = {
   deleteCoupon: (id) => client.delete(`/coupons/${id}`).then((r) => r.data),
 
   // content
-  blogs: () => client.get('/blogs/admin/all').then(d),
-  createBlog: (body) => client.post('/blogs', body).then(d),
   content: (resource) => client.get(`/admin/content/${resource}`).then(d),
   createContent: (resource, body) => client.post(`/admin/content/${resource}`, body).then(d),
   updateContent: (resource, id, body) => client.patch(`/admin/content/${resource}/${id}`, body).then(d),

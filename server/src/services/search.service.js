@@ -14,8 +14,8 @@ async function resolveCategoryId(category) {
 /**
  * Build a Mongo filter object from normalised query params.
  */
-export async function buildProductFilter(q = {}) {
-  const filter = { isActive: true }
+export async function buildProductFilter(q = {}, { includeInactive = false } = {}) {
+  const filter = includeInactive ? {} : { isActive: true }
 
   const term = (q.q || q.search || '').trim()
   if (term) filter.$text = { $search: term }

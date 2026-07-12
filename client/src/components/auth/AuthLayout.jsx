@@ -2,14 +2,17 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Icon } from '../ui/Icon'
+import Seo from '../Seo'
+import { HERO_IMAGES } from '../../lib/media'
 
 export default function AuthLayout({ title, subtitle, children, footer }) {
   return (
     <div className="grid min-h-[calc(100vh-var(--header-h))] lg:grid-cols-2">
+      <Seo title={title} noindex />
       {/* Visual side */}
       <div className="relative hidden overflow-hidden lg:block">
         <img
-          src="https://picsum.photos/seed/ysc-auth/1000/1400"
+          src={HERO_IMAGES.workshop}
           alt=""
           className="absolute inset-0 h-full w-full object-cover"
         />

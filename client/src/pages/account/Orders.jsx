@@ -97,7 +97,7 @@ export default function Orders() {
                     {o.items.map((it, idx) => (
                       <div key={idx} className="flex items-center gap-4">
                         <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-sand/40">
-                          <img src={it.image} alt={it.name} className="h-full w-full object-cover" />
+                          <img src={it.image} alt={it.name} loading="lazy" className="h-full w-full object-cover" />
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium text-ink">{it.name}</p>

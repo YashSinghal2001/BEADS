@@ -2,6 +2,7 @@ import { asyncHandler } from '../utils/asyncHandler.js'
 import { sendSuccess } from '../utils/ApiResponse.js'
 import { ApiError } from '../utils/ApiError.js'
 import { Product } from '../models/Product.js'
+import { isAdminRole } from '../middleware/rbac.middleware.js'
 import { getPagination, buildMeta } from '../utils/pagination.js'
 import {
   buildProductFilter,
@@ -13,7 +14,10 @@ import {
 /* GET /products */
 export const listProducts = asyncHandler(async (req, res) => {
   const { page, limit, skip } = getPagination(req.query)
-  const { filter, hasText } = await buildProductFilter(req.query)
+  // Admin consoles pass includeInactive=true to manage draft/deactivated
+  // products; the flag is ignored for non-admin requesters.
+  const includeInactive = req.query.includeInactive === 'true' && isAdminRole(req.user?.role)
+  const { filter, hasText } = await buildProductFilter(req.query, { includeInactive })
   const sort = buildProductSort(req.query.sort, hasText)
 
   const projection = hasText ? { score: { $meta: 'textScore' } } : {}

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { Icon } from '../ui/Icon'
+import { BUSINESS_INFO } from '../../lib/siteContent'
 
 const columns = [
   {
@@ -7,8 +8,8 @@ const columns = [
     links: [
       { label: 'All Products', to: '/shop' },
       { label: 'New Arrivals', to: '/shop?sort=new' },
-      { label: 'Best Sellers', to: '/shop?sort=best' },
-      { label: 'Jewelry Kits', to: '/category/jewelry-kits' },
+      { label: 'Best Sellers', to: '/shop?sort=popular' },
+      { label: 'Jewelry Kits', to: '/category/diy-kits' },
     ],
   },
   {
@@ -16,7 +17,7 @@ const columns = [
     links: [
       { label: 'About Us', to: '/about' },
       { label: 'Our Story', to: '/about#story' },
-      { label: 'Blog', to: '/blog' },
+      { label: 'Collections', to: '/collections' },
       { label: 'Contact', to: '/contact' },
     ],
   },
@@ -25,10 +26,15 @@ const columns = [
     links: [
       { label: 'Shipping & Returns', to: '/shipping' },
       { label: 'FAQ', to: '/faq' },
-      { label: 'Track Order', to: '/account/orders' },
+      { label: 'Track Order', to: '/track-order' },
       { label: 'Privacy Policy', to: '/privacy' },
     ],
   },
+]
+
+const socials = [
+  { name: 'instagram', href: BUSINESS_INFO.instagramLink },
+  { name: 'mail', href: `mailto:${BUSINESS_INFO.email}` },
 ]
 
 export default function Footer() {
@@ -51,14 +57,16 @@ export default function Footer() {
               makers, artists, and dreamers.
             </p>
             <div className="mt-6 flex gap-3">
-              {['instagram', 'mail'].map((n) => (
+              {socials.map((s) => (
                 <a
-                  key={n}
-                  href="#"
-                  aria-label={n}
+                  key={s.name}
+                  href={s.href}
+                  target={s.href.startsWith('http') ? '_blank' : undefined}
+                  rel="noreferrer"
+                  aria-label={s.name}
                   className="grid h-10 w-10 place-items-center rounded-full border border-cream/15 text-cream/70 transition-all duration-300 hover:border-gold hover:text-gold"
                 >
-                  <Icon name={n} size={18} />
+                  <Icon name={s.name} size={18} />
                 </a>
               ))}
             </div>

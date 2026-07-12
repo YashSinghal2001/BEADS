@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Container, Reveal } from '../components/ui/Primitives'
 import { Icon } from '../components/ui/Icon'
 import Button from '../components/ui/Button'
+import Seo from '../components/Seo'
 
 const STEPS = [
   { key: 'confirmed', label: 'Order confirmed', icon: 'checkCircle', note: 'We’ve received your order and payment.' },
@@ -73,6 +74,10 @@ export default function TrackOrder() {
 
   return (
     <div className="pb-20 pt-10">
+      <Seo
+        title="Track Your Order"
+        description="Enter your order number and email to see the latest status and delivery estimate."
+      />
       <Container>
         <div className="mx-auto max-w-3xl">
           {/* Header */}

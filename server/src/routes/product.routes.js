@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import * as ctrl from '../controllers/product.controller.js'
-import { protect, isAdmin } from '../middleware/auth.middleware.js'
+import { protect, isAdmin, optionalAuth } from '../middleware/auth.middleware.js'
 import { validate } from '../middleware/validate.middleware.js'
 import { idParam } from '../validators/common.validator.js'
 import {
@@ -11,7 +11,7 @@ import {
 
 const router = Router()
 
-router.get('/', validate(productQuerySchema), ctrl.listProducts)
+router.get('/', optionalAuth, validate(productQuerySchema), ctrl.listProducts)
 router.get('/search/autocomplete', ctrl.autocomplete)
 router.get('/search/suggestions', ctrl.suggestions)
 router.get('/:slug', ctrl.getProduct)

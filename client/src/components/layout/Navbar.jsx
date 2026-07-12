@@ -8,9 +8,9 @@ import { useWishlistStore } from '../../store/useWishlistStore'
 const links = [
   { label: 'Home', to: '/' },
   { label: 'Shop', to: '/shop' },
+  { label: 'Collections', to: '/collections' },
   { label: 'Categories', to: '/categories' },
   { label: 'About', to: '/about' },
-  { label: 'Blog', to: '/blog' },
   { label: 'Contact', to: '/contact' },
 ]
 

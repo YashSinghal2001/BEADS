@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { Container, Reveal } from '../components/ui/Primitives'
 import { Icon } from '../components/ui/Icon'
 import Button from '../components/ui/Button'
+import Seo from '../components/Seo'
 import { POLICIES, POLICY_LIST } from '../lib/siteContent'
 
 export default function Policy({ policyKey }) {
@@ -11,6 +12,7 @@ export default function Policy({ policyKey }) {
 
   return (
     <div className="pb-20 pt-10">
+      <Seo title={policy.title} description={policy.intro} />
       <Container>
         {/* Header */}
         <div className="mx-auto max-w-3xl text-center">

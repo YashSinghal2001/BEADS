@@ -4,16 +4,23 @@ import { AnimatePresence, motion } from 'framer-motion'
 import Layout from './components/layout/Layout'
 import DashboardLayout from './components/account/DashboardLayout'
 import ProtectedRoute from './components/auth/ProtectedRoute'
-import Home from './pages/Home'
 import { useAuthStore } from './store/useAuthStore'
 
 // Lazy-loaded routes (code splitting)
+const Home = lazy(() => import('./pages/Home'))
 const Shop = lazy(() => import('./pages/Shop'))
 const ProductDetail = lazy(() => import('./pages/ProductDetail'))
 const Cart = lazy(() => import('./pages/Cart'))
 const Wishlist = lazy(() => import('./pages/Wishlist'))
 const Checkout = lazy(() => import('./pages/Checkout'))
 const Placeholder = lazy(() => import('./pages/Placeholder'))
+const About = lazy(() => import('./pages/About'))
+const Categories = lazy(() => import('./pages/Categories'))
+const Collections = lazy(() => import('./pages/Collections'))
+const Contact = lazy(() => import('./pages/Contact'))
+const FAQ = lazy(() => import('./pages/FAQ'))
+const Policy = lazy(() => import('./pages/Policy'))
+const TrackOrder = lazy(() => import('./pages/TrackOrder'))
 
 const Login = lazy(() => import('./pages/auth/Login'))
 const Register = lazy(() => import('./pages/auth/Register'))
@@ -69,8 +76,16 @@ export default function App() {
             <Route index element={page(<Home />)} />
             <Route path="/shop" element={page(<Shop />)} />
             <Route path="/category/:slug" element={page(<Shop />)} />
-            <Route path="/categories" element={page(<Placeholder title="Categories" />)} />
+            <Route path="/categories" element={page(<Categories />)} />
+            <Route path="/collections" element={page(<Collections />)} />
             <Route path="/product/:slug" element={page(<ProductDetail />)} />
+            <Route path="/track-order" element={page(<TrackOrder />)} />
+            <Route path="/faq" element={page(<FAQ />)} />
+            <Route path="/privacy" element={page(<Policy policyKey="privacy" />)} />
+            <Route path="/terms" element={page(<Policy policyKey="terms" />)} />
+            <Route path="/shipping" element={page(<Policy policyKey="shipping" />)} />
+            <Route path="/returns" element={page(<Policy policyKey="returns" />)} />
+            <Route path="/refund" element={page(<Policy policyKey="refund" />)} />
 
             {/* Protected storefront */}
             <Route element={<ProtectedRoute />}>
@@ -92,10 +107,9 @@ export default function App() {
               </Route>
             </Route>
 
-            <Route path="/about" element={page(<Placeholder title="About YS Creations" />)} />
-            <Route path="/blog" element={page(<Placeholder title="Blog" />)} />
-            <Route path="/contact" element={page(<Placeholder title="Contact" />)} />
-            <Route path="*" element={page(<Placeholder title="Page not found" note="The page you're looking for doesn't exist yet." />)} />
+            <Route path="/about" element={page(<About />)} />
+            <Route path="/contact" element={page(<Contact />)} />
+            <Route path="*" element={page(<Placeholder title="Page not found" eyebrow="404" note="The page you're looking for doesn't exist. Let's get you back on track." />)} />
           </Route>
         </Routes>
       </AnimatePresence>

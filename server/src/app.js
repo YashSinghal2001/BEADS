@@ -52,15 +52,19 @@ export function createApp() {
   // Input sanitization (NoSQL injection + basic XSS)
   app.use(sanitize)
 
-  // Health check (no DB dependency)
+  // Health check
   app.get('/health', (req, res) => {
-    res.json({
-      success: true,
-      message: 'OK',
+    const dbConnected = isDBConnected()
+    // Non-200 when the DB is down so PaaS/load-balancer health checks (which
+    // key off status code, not payload) correctly pull this instance out of
+    // rotation instead of treating it as healthy.
+    res.status(dbConnected ? 200 : 503).json({
+      success: dbConnected,
+      message: dbConnected ? 'OK' : 'Database unavailable',
       data: {
-        status: 'up',
+        status: dbConnected ? 'up' : 'degraded',
         env: config.NODE_ENV,
-        db: isDBConnected() ? 'connected' : 'disconnected',
+        db: dbConnected ? 'connected' : 'disconnected',
         features: config.features,
         uptime: Math.round(process.uptime()),
       },

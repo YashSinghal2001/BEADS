@@ -2,6 +2,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Container } from '../ui/Primitives'
 import { Icon } from '../ui/Icon'
+import Seo from '../Seo'
 import { useAuthStore } from '../../store/useAuthStore'
 import { useWishlistStore } from '../../store/useWishlistStore'
 import { toast } from '../../store/useToastStore'
@@ -32,6 +33,7 @@ export default function DashboardLayout() {
 
   return (
     <div className="pb-20 pt-8">
+      <Seo title="My Account" noindex />
       <Container>
         <div className="mb-8">
           <p className="eyebrow mb-2">My Account</p>

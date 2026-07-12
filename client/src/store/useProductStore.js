@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { productApi } from '../api/product.api.js'
 import { categoryApi } from '../api/category.api.js'
+import { DEMO_CATEGORIES, DEMO_FEATURED, DEMO_PRODUCTS } from '../lib/homeContent.js'
 
 /* Module-level caches (don't belong in reactive state). */
 const listCache = new Map() // key → { products, meta }
@@ -20,7 +21,15 @@ export const useProductStore = create((set, get) => ({
 
   async fetchCategories() {
     if (get().categoriesLoaded) return get().categories
-    const categories = await categoryApi.list()
+    let categories = []
+    try {
+      categories = await categoryApi.list()
+    } catch {
+      /* backend unavailable — fall back to demo content below */
+    }
+    // Fall back to premium demo categories when the API has none, so the
+    // storefront never appears empty. Real API data always takes priority.
+    if (!categories.length) categories = DEMO_CATEGORIES
     set({ categories, categoriesLoaded: true })
     return categories
   },
@@ -50,8 +59,26 @@ export const useProductStore = create((set, get) => ({
 
   async fetchFeatured() {
     if (get().featured.length) return get().featured
-    const { products } = await productApi.list({ limit: 12, sort: 'featured' })
+    let products = []
+    try {
+      products = (await productApi.list({ limit: 12, sort: 'featured' })).products
+    } catch {
+      /* backend unavailable — fall back to demo content below */
+    }
+    if (!products.length) products = DEMO_FEATURED
     set({ featured: products })
+    return products
+  },
+
+  /** All products for homepage carousels, with demo fallback. */
+  async fetchAllProducts() {
+    let products = []
+    try {
+      products = (await productApi.list({ limit: 24, sort: 'popular' })).products
+    } catch {
+      /* backend unavailable — fall back to demo content below */
+    }
+    if (!products.length) products = DEMO_PRODUCTS
     return products
   },
 

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Container } from '../components/ui/Primitives'
+import Seo from '../components/Seo'
+import JsonLd from '../components/JsonLd'
 import { Icon } from '../components/ui/Icon'
 import Button from '../components/ui/Button'
 import { Rating, QuantityStepper, EmptyState } from '../components/ui/Controls'
@@ -108,8 +110,51 @@ export default function ProductDetail() {
 
   const recentlyViewed = recent.filter((it) => it.id !== product.id)
 
+  const productJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Product',
+    name: product.name,
+    description: product.description || product.shortDescription || product.name,
+    image: product.images?.length ? product.images : [product.image],
+    sku: product.slug,
+    brand: { '@type': 'Brand', name: 'YS Creations' },
+    aggregateRating: product.reviews
+      ? { '@type': 'AggregateRating', ratingValue: product.rating, reviewCount: product.reviews }
+      : undefined,
+    offers: {
+      '@type': 'Offer',
+      url: `${window.location.origin}/product/${product.slug}`,
+      priceCurrency: 'INR',
+      price: product.price,
+      availability: product.inStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+    },
+  }
+  const breadcrumbItems = [
+    { name: 'Home', url: '/' },
+    { name: 'Shop', url: '/shop' },
+    ...(product.categorySlug ? [{ name: product.categoryName, url: `/category/${product.categorySlug}` }] : []),
+    { name: product.name, url: `/product/${product.slug}` },
+  ]
+  const breadcrumbJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: breadcrumbItems.map((item, i) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      name: item.name,
+      item: `${window.location.origin}${item.url}`,
+    })),
+  }
+
   return (
     <div className="pb-20 pt-6">
+      <Seo
+        title={product.name}
+        description={(product.description || product.shortDescription || `${product.name} — premium handmade beads from YS Creations.`).slice(0, 160)}
+        image={product.image}
+      />
+      <JsonLd data={productJsonLd} />
+      <JsonLd data={breadcrumbJsonLd} />
       <Container>
         {/* Breadcrumb */}
         <nav className="mb-6 flex items-center gap-1.5 text-sm text-graphite/60">

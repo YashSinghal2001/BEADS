@@ -69,6 +69,7 @@ export const categoryBanner = (slug, i = 0) =>
 /* ------------------------------- Heroes ------------------------------ */
 export const HERO_IMAGES = {
   categories: pexels(1331705, 1600, 900),
+  collections: pexels(11944293, 1600, 900),
   about: pexels(7585704, 1600, 1000),
   contact: pexels(18609437, 1600, 900),
   story: pexels(7585691, 1000, 800),

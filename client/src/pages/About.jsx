@@ -8,6 +8,7 @@ import {
 } from '../components/ui/Primitives'
 import { Icon } from '../components/ui/Icon'
 import Button from '../components/ui/Button'
+import Seo from '../components/Seo'
 import { Testimonials } from '../components/sections/Story'
 import {
   ABOUT_VALUES,
@@ -19,6 +20,10 @@ import { HERO_IMAGES, ABOUT_GALLERY } from '../lib/media'
 export default function About() {
   return (
     <div className="pb-8">
+      <Seo
+        title="About Us"
+        description="YS Creations started at a single craft table and grew into a 12,000-strong community of makers. Read our story."
+      />
       {/* Hero */}
       <section className="relative overflow-hidden">
         <div className="absolute inset-0">

@@ -57,7 +57,7 @@ export default function Returns() {
           {returned.map((o) => (
             <div key={o._id} className="flex items-center gap-4 rounded-3xl bg-white p-4 shadow-soft">
               <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-sand/40">
-                <img src={o.items[0]?.image} alt="" className="h-full w-full object-cover" />
+                <img src={o.items[0]?.image} alt="" loading="lazy" className="h-full w-full object-cover" />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-ink">{o.items[0]?.name}</p>

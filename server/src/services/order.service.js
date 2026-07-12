@@ -55,7 +55,7 @@ export async function transitionOrder(order, to, { note = '', by = 'system', for
 const queueEmail = (type) => (order) => {
   emailQueue.enqueue({
     type,
-    to: order.shippingAddress?.email || order._userEmail || null,
+    to: order.customerEmail || order.shippingAddress?.email || null,
     data: {
       orderNumber: order.orderNumber,
       total: order.total,

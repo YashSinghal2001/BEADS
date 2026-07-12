@@ -6,6 +6,7 @@ import { Icon } from '../components/ui/Icon'
 import Button from '../components/ui/Button'
 import { QuantityStepper, EmptyState } from '../components/ui/Controls'
 import ProductCarousel from '../components/product/ProductCarousel'
+import Seo from '../components/Seo'
 import { useCartStore } from '../store/useCartStore'
 import { useProductStore } from '../store/useProductStore'
 import { formatINR } from '../lib/format'
@@ -29,6 +30,7 @@ export default function Cart() {
   if (items.length === 0 && saved.length === 0) {
     return (
       <div className="pt-10">
+        <Seo title="Cart" noindex />
         <Container>
           <EmptyState
             icon="cart"
@@ -48,6 +50,7 @@ export default function Cart() {
 
   return (
     <div className="pb-20 pt-8">
+      <Seo title="Cart" noindex />
       <Container>
         <h1 className="mb-8 font-display text-3xl font-semibold text-ink md:text-4xl">
           Your cart <span className="text-graphite/40">({items.reduce((n, i) => n + i.qty, 0)})</span>
@@ -131,7 +134,7 @@ function CartLine({ item }) {
       className="flex gap-4 rounded-2xl bg-white p-3 shadow-soft sm:p-4"
     >
       <Link to={`/product/${item.slug}`} className="block aspect-square w-24 shrink-0 overflow-hidden rounded-xl bg-sand/40 sm:w-28">
-        <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
+        <img src={item.image} alt={item.name} loading="lazy" className="h-full w-full object-cover" />
       </Link>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -191,7 +194,7 @@ function SavedForLater() {
               className="flex items-center gap-4 rounded-2xl bg-white/60 p-3"
             >
               <Link to={`/product/${item.slug}`} className="block aspect-square w-16 shrink-0 overflow-hidden rounded-xl bg-sand/40">
-                <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
+                <img src={item.image} alt={item.name} loading="lazy" className="h-full w-full object-cover" />
               </Link>
               <div className="min-w-0 flex-1">
                 <h3 className="truncate text-sm font-medium text-ink">{item.name}</h3>

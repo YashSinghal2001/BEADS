@@ -6,8 +6,7 @@ import { User } from '../models/User.js'
 import { Category } from '../models/Category.js'
 import { Product } from '../models/Product.js'
 import { Coupon } from '../models/Coupon.js'
-import { Blog } from '../models/Blog.js'
-import { categories, buildProducts, coupons, blogs } from './seedData.js'
+import { categories, buildProducts, coupons } from './seedData.js'
 
 const destroyOnly = process.argv.includes('--destroy')
 
@@ -16,10 +15,9 @@ async function clearAll() {
     Product.deleteMany({}),
     Category.deleteMany({}),
     Coupon.deleteMany({}),
-    Blog.deleteMany({}),
     User.deleteMany({ role: { $ne: 'admin' } }),
   ])
-  logger.info('Cleared products, categories, coupons, blogs and non-admin users')
+  logger.info('Cleared products, categories, coupons and non-admin users')
 }
 
 async function seed() {
@@ -57,10 +55,9 @@ async function seed() {
   const createdProducts = await Product.create(products)
   logger.info(`Inserted ${createdProducts.length} products`)
 
-  // Coupons + blogs
+  // Coupons
   await Coupon.create(coupons)
-  await Blog.create(blogs)
-  logger.info(`Inserted ${coupons.length} coupons and ${blogs.length} blog posts`)
+  logger.info(`Inserted ${coupons.length} coupons`)
 
   logger.info('✅ Seed complete')
 }

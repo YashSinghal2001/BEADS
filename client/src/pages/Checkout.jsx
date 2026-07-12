@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Container } from '../components/ui/Primitives'
 import { Icon } from '../components/ui/Icon'
 import Button from '../components/ui/Button'
+import Seo from '../components/Seo'
 import { EmptyState } from '../components/ui/Controls'
 import { Field } from '../components/auth/AuthLayout'
 import { formatINR } from '../lib/format'
@@ -55,6 +56,7 @@ export default function Checkout() {
   if (items.length === 0 && co.step !== 5) {
     return (
       <div className="pt-10">
+        <Seo title="Checkout" noindex />
         <Container>
           <EmptyState
             icon="cart"
@@ -117,6 +119,7 @@ export default function Checkout() {
 
   return (
     <div className="pb-20 pt-8">
+      <Seo title="Checkout" noindex />
       <Container>
         <h1 className="mb-6 font-display text-3xl font-semibold text-ink md:text-4xl">Checkout</h1>
 
@@ -321,7 +324,7 @@ function ReviewStep({ co, items, address }) {
         <div className="space-y-3">
           {items.map((it) => (
             <div key={it.key} className="flex items-center gap-3">
-              <img src={it.image} alt="" className="h-14 w-14 rounded-xl object-cover" />
+              <img src={it.image} alt="" loading="lazy" className="h-14 w-14 rounded-xl object-cover" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-ink">{it.name}</p>
                 <p className="text-xs text-graphite/55">Qty {it.qty}</p>
@@ -433,7 +436,7 @@ function Summary({ items, totals, coupon }) {
           {items.map((it) => (
             <div key={it.key} className="flex items-center gap-3">
               <div className="relative">
-                <img src={it.image} alt="" className="h-12 w-12 rounded-lg object-cover" />
+                <img src={it.image} alt="" loading="lazy" className="h-12 w-12 rounded-lg object-cover" />
                 <span className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-ink text-[10px] font-semibold text-cream">{it.qty}</span>
               </div>
               <p className="min-w-0 flex-1 truncate text-sm text-ink">{it.name}</p>

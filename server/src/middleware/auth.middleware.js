@@ -3,10 +3,14 @@ import { asyncHandler } from '../utils/asyncHandler.js'
 import { verifyAccessToken } from '../utils/token.js'
 import { User } from '../models/User.js'
 
+// Bearer-only by design: both client apps send Authorization headers, never
+// cookies, for authenticated requests. Accepting req.cookies.accessToken here
+// would let any cross-site request ride an authenticated session with no
+// CSRF protection — the only cookie the API relies on is the httpOnly
+// refreshToken, which /auth/refresh reads directly, not through this path.
 function extractToken(req) {
   const header = req.headers.authorization
   if (header && header.startsWith('Bearer ')) return header.slice(7)
-  if (req.cookies?.accessToken) return req.cookies.accessToken
   return null
 }
 

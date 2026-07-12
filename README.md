@@ -109,7 +109,7 @@ Production Express + MongoDB/Mongoose API (Phase 3).
 cd server
 cp .env.example .env       # set MONGODB_URI + JWT secrets (min 10 chars)
 npm install
-npm run seed               # admin + categories + products + coupons + blogs
+npm run seed               # admin + categories + products + coupons
 npm run dev                # http://localhost:5000  (health: /health, api: /api)
 npm run check              # syntax-check all source files
 npm run test:smoke         # end-to-end test on in-memory MongoDB
@@ -120,7 +120,7 @@ server/src/
 ├── config/        # env (zod-validated), db, cloudinary
 ├── utils/         # ApiError, ApiResponse, asyncHandler, token, logger, pagination
 ├── middleware/    # auth (JWT/RBAC), validate (zod), error, rateLimit, sanitize, upload
-├── models/        # User, Category, Product, Review, Cart, Wishlist, Coupon, Order, Blog
+├── models/        # User, Category, Product, Review, Cart, Wishlist, Coupon, Order
 ├── validators/    # zod schemas per module
 ├── services/      # token, cloudinary, email, payment, shipping, search, analytics, pricing
 ├── controllers/   # one per module
@@ -135,7 +135,7 @@ rest), httpOnly cookies, bcrypt hashing, Helmet, CORS whitelist, rate limiting,
 zod request validation, NoSQL-injection/XSS sanitization, and role-based access.
 
 API base: `/api` — `auth, users, categories, products, wishlist, cart, reviews,
-orders, coupons, blogs, uploads, analytics`. Standard envelope:
+orders, coupons, uploads, analytics`. Standard envelope:
 `{ success, message, data, meta }`. Cloudinary/Razorpay/Shiprocket are modular and
 stay inert until their keys are set.
 
@@ -164,7 +164,7 @@ Sign in with an admin-capable account (the seeded `SEED_ADMIN_EMAIL`). Features:
 - **Customer CRM** — segments, profiles with CLV & order history, internal notes,
   role / block / wholesale tier management.
 - **Coupons** — create/edit, usage analytics. **Content** — banners, testimonials,
-  FAQs (full CRUD) and blog. **Activity** — full audit trail.
+  FAQs (full CRUD). **Activity** — full audit trail.
 
 ## Roadmap
 - **Phase 2** — Shop (filters/sort/pagination), Product Detail (gallery/zoom/variants/

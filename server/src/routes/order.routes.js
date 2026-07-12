@@ -2,6 +2,7 @@ import { Router } from 'express'
 import * as ctrl from '../controllers/order.controller.js'
 import { protect, isAdmin } from '../middleware/auth.middleware.js'
 import { validate } from '../middleware/validate.middleware.js'
+import { writeLimiter } from '../middleware/rateLimit.middleware.js'
 import { idParam } from '../validators/common.validator.js'
 import {
   createOrderSchema,
@@ -21,7 +22,7 @@ router.post('/:id/ship', isAdmin, validate({ params: idParam }), ctrl.createShip
 router.get('/:id/label', isAdmin, validate({ params: idParam }), ctrl.downloadLabel)
 
 // User
-router.post('/', validate(createOrderSchema), ctrl.createOrder)
+router.post('/', writeLimiter, validate(createOrderSchema), ctrl.createOrder)
 router.get('/', ctrl.getUserOrders)
 router.get('/:id', validate({ params: idParam }), ctrl.getOrder)
 router.get('/:id/invoice', validate({ params: idParam }), ctrl.downloadInvoice)

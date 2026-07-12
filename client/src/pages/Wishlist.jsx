@@ -6,6 +6,7 @@ import { Icon } from '../components/ui/Icon'
 import Button from '../components/ui/Button'
 import { EmptyState } from '../components/ui/Controls'
 import { Rating } from '../components/ui/Controls'
+import Seo from '../components/Seo'
 import { useWishlistStore } from '../store/useWishlistStore'
 import { useCartStore } from '../store/useCartStore'
 import { formatINR } from '../lib/format'
@@ -72,7 +73,7 @@ export default function Wishlist({ embedded = false }) {
                 className="group flex gap-4 rounded-3xl bg-white p-3 shadow-soft"
               >
                 <Link to={`/product/${item.slug}`} className="relative block aspect-square w-28 shrink-0 overflow-hidden rounded-2xl bg-sand/40">
-                  <img src={item.image} alt={item.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                  <img src={item.image} alt={item.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
                   {!item.inStock && (
                     <span className="absolute inset-x-0 bottom-0 bg-ink/70 py-1 text-center text-[10px] font-medium uppercase tracking-wider text-cream">
                       Sold out
@@ -135,6 +136,7 @@ export default function Wishlist({ embedded = false }) {
 
   return (
     <div className="pb-20 pt-8">
+      <Seo title="Wishlist" noindex />
       <Container>{content}</Container>
     </div>
   )

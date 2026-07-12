@@ -74,4 +74,7 @@ export const testimonials = [
   { id: 't1', name: 'Aarohi Mehta', role: 'Instagram Seller · @aarohimakes', quote: 'The pearl quality is unreal for the price. My customers constantly ask where I source my beads — YS Creations is my secret.', rating: 5 },
   { id: 't2', name: 'Priya Nair', role: 'DIY Artist', quote: 'Beautiful packaging, fast shipping, and the colours are exactly as shown. The bow beads are my absolute favourite.', rating: 5 },
   { id: 't3', name: 'Sneha Kapoor', role: 'Etsy Shop Owner', quote: 'I run a small jewelry business and consistency matters. Every batch is perfect. This is luxury craft supply done right.', rating: 5 },
+  { id: 't4', name: 'Riya Sharma', role: 'Fashion Blogger', quote: 'I styled a whole reel around the gold charm collection and it blew up. The finish photographs like fine jewelry.', rating: 5 },
+  { id: 't5', name: 'Komal Gupta', role: 'Boutique Owner', quote: 'The DIY kits are a hit at my in-store workshops. Everything is organised, premium and ready to create with.', rating: 5 },
+  { id: 't6', name: 'Aditi Jain', role: 'Hobbyist Maker', quote: 'As a beginner I was nervous, but the starter bundle had everything and the tutorials made my first bracelet effortless.', rating: 5 },
 ]

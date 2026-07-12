@@ -78,6 +78,7 @@ export const productQuerySchema = {
     featured: z.enum(['true', 'false']).optional(),
     bestSeller: z.enum(['true', 'false']).optional(),
     newArrival: z.enum(['true', 'false']).optional(),
+    includeInactive: z.enum(['true', 'false']).optional(), // admin-only; ignored for others
     sort: z.enum(['featured', 'new', 'price-asc', 'price-desc', 'rating', 'popular']).optional(),
     page: z.coerce.number().int().min(1).optional(),
     limit: z.coerce.number().int().min(1).max(60).optional(),

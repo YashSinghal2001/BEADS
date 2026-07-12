@@ -54,6 +54,9 @@ const orderSchema = new Schema(
 
     shippingAddress: { type: addressSchema, required: true },
     billingAddress: { type: addressSchema, default: null },
+    // Snapshot of the buyer's account email at order time — addresses don't
+    // carry an email field, and this is what lifecycle emails send to.
+    customerEmail: { type: String, default: '' },
 
     subtotal: { type: Number, required: true },
     discount: { type: Number, default: 0 },

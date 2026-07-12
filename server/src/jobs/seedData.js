@@ -91,23 +91,3 @@ export const coupons = [
   { code: 'FREESHIP', description: 'Free shipping', type: 'shipping', amount: 0, minimumPurchase: 0, active: true },
 ]
 
-export const blogs = [
-  {
-    title: '5 Beginner-Friendly Bracelet Patterns',
-    excerpt: 'Start your beading journey with these simple yet stunning bracelet designs.',
-    content: 'Beading is a relaxing, rewarding craft...',
-    category: 'Tutorials',
-    tags: ['beginner', 'bracelets', 'diy'],
-    featuredImage: img('blog1', 1200, 700),
-    published: true,
-  },
-  {
-    title: 'How to Choose the Right Beads for Your Project',
-    excerpt: 'Acrylic, glass or pearl? A practical guide to picking the perfect beads.',
-    content: 'The material you choose changes everything...',
-    category: 'Guides',
-    tags: ['materials', 'guide'],
-    featuredImage: img('blog2', 1200, 700),
-    published: true,
-  },
-]

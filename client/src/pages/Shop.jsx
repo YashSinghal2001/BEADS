@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Container } from '../components/ui/Primitives'
+import Seo from '../components/Seo'
 import { Icon } from '../components/ui/Icon'
 import Drawer from '../components/ui/Drawer'
 import Button from '../components/ui/Button'
@@ -48,6 +49,7 @@ export default function Shop() {
   const pageSize = usePreferencesStore((s) => s.pageSize)
   const fetchCategories = useProductStore((s) => s.fetchCategories)
   const fetchProducts = useProductStore((s) => s.fetchProducts)
+  const categoryName = useProductStore((s) => s.categoryName)
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -109,8 +111,14 @@ export default function Shop() {
   const pageCount = meta.pages || 1
   const page = Math.min(filters.page, pageCount)
 
+  const seoTitle = slug ? categoryName(slug) : filters.search ? `Search: “${filters.search}”` : 'Shop All Products'
+
   return (
     <div className="pb-20 pt-8">
+      <Seo
+        title={seoTitle}
+        description="Shop premium, hand-inspected beads, charms and DIY kits — filter by colour, material, price and more."
+      />
       <Container>
         <div className="mb-8">
           <p className="eyebrow mb-2">The Collection</p>

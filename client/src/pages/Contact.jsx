@@ -9,6 +9,7 @@ import {
 } from '../components/ui/Primitives'
 import { Icon } from '../components/ui/Icon'
 import Button from '../components/ui/Button'
+import Seo from '../components/Seo'
 import { BUSINESS_INFO, CONTACT_SUBJECTS, FAQ_GROUPS } from '../lib/siteContent'
 import { HERO_IMAGES } from '../lib/media'
 import { toast } from '../store/useToastStore'
@@ -57,6 +58,10 @@ export default function Contact() {
 
   return (
     <div className="pb-8">
+      <Seo
+        title="Contact Us"
+        description="Questions about an order, wholesale, or just want to say hello? Get in touch with the YS Creations team."
+      />
       {/* Hero */}
       <section className="relative overflow-hidden">
         <div className="absolute inset-0">

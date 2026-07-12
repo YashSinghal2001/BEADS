@@ -11,6 +11,7 @@ import {
 } from '../components/ui/Primitives'
 import { Icon } from '../components/ui/Icon'
 import Button from '../components/ui/Button'
+import Seo from '../components/Seo'
 import { EmptyState } from '../components/ui/Controls'
 import ProductCarousel from '../components/product/ProductCarousel'
 import { useProductStore } from '../store/useProductStore'
@@ -64,6 +65,10 @@ export default function Categories() {
 
   return (
     <div className="pb-8">
+      <Seo
+        title="Shop by Category"
+        description="Browse every YS Creations category — acrylic, pearl, glass, flower & bow beads, charms, spacers and DIY jewelry kits."
+      />
       {/* Hero */}
       <section className="relative overflow-hidden">
         <div className="absolute inset-0">

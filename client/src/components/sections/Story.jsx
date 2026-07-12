@@ -4,6 +4,8 @@ import { Container, Reveal, SectionHeading, StaggerGroup, StaggerItem } from '..
 import Button from '../ui/Button'
 import { Icon } from '../ui/Icon'
 import { testimonials } from '../../lib/constants'
+import { HERO_IMAGES } from '../../lib/media'
+import { INSTAGRAM_TILES } from '../../lib/homeContent'
 
 /* ---------------------------- Brand Story ---------------------------- */
 export function BrandStory() {
@@ -15,8 +17,8 @@ export function BrandStory() {
             <div className="relative">
               <div className="overflow-hidden rounded-[2rem] shadow-card">
                 <img
-                  src="https://picsum.photos/seed/ysc-story/900/700"
-                  alt="The YS Creations workshop"
+                  src={HERO_IMAGES.about}
+                  alt="The YS Creations workshop — hands making jewelry among beads, tools and flowers"
                   className="h-full w-full object-cover"
                 />
               </div>
@@ -119,7 +121,6 @@ export function Testimonials() {
 
 /* -------------------------- Instagram Feed --------------------------- */
 export function InstagramFeed() {
-  const seeds = ['ig1', 'ig2', 'ig3', 'ig4', 'ig5', 'ig6']
   return (
     <section className="section">
       <Container>
@@ -128,15 +129,19 @@ export function InstagramFeed() {
           title="Tag us in your creations"
           subtitle="We love reposting our community. Use #MadeWithYS for a chance to be featured."
         />
-        <StaggerGroup className="mt-12 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-6">
-          {seeds.map((s) => (
-            <StaggerItem key={s}>
+        <StaggerGroup className="mt-12 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+          {INSTAGRAM_TILES.map((src, i) => (
+            <StaggerItem key={i} className={i % 5 === 0 ? 'row-span-2' : ''}>
               <a
-                href="#"
-                className="group relative block aspect-square overflow-hidden rounded-2xl"
+                href="https://instagram.com/yscreations"
+                target="_blank"
+                rel="noreferrer"
+                className={`group relative block overflow-hidden rounded-2xl ${
+                  i % 5 === 0 ? 'aspect-[3/4] md:h-full' : 'aspect-square'
+                }`}
               >
                 <img
-                  src={`https://picsum.photos/seed/ysc-${s}/400/400`}
+                  src={src}
                   alt="Community creation"
                   loading="lazy"
                   className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
@@ -184,6 +189,17 @@ export function Newsletter() {
                 Early access to new drops, maker tutorials, and members-only
                 offers. No spam — just sparkle.
               </p>
+
+              <ul className="mx-auto mt-6 flex max-w-md flex-wrap justify-center gap-x-6 gap-y-2">
+                {['10% off first order', 'Early access', 'Product drops', 'DIY tutorials'].map(
+                  (b) => (
+                    <li key={b} className="flex items-center gap-2 text-sm text-cream/80">
+                      <Icon name="check" size={15} className="text-gold-soft" />
+                      {b}
+                    </li>
+                  ),
+                )}
+              </ul>
 
               <form
                 onSubmit={submit}

@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Icon } from '../ui/Icon'
@@ -32,10 +33,12 @@ function useCardActions(product) {
   return { add, wish, wished }
 }
 
-export default function ProductCard({ product, view = 'grid', index = 0 }) {
+function ProductCard({ product, view = 'grid', index = 0 }) {
   if (view === 'list') return <ProductRow product={product} index={index} />
   return <ProductTile product={product} />
 }
+
+export default memo(ProductCard)
 
 function ProductTile({ product }) {
   const { name, slug, price, compareAt, rating, reviews, image, badge, colors, inStock } = product

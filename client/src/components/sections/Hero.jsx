@@ -2,6 +2,14 @@ import { motion, useScroll, useTransform } from 'framer-motion'
 import { useRef } from 'react'
 import Button from '../ui/Button'
 import { Icon } from '../ui/Icon'
+import { HERO_BADGES, HERO_IMAGE } from '../../lib/homeContent'
+
+const badgePos = {
+  'top-left': '-left-3 top-6 sm:-left-6',
+  'top-right': '-right-3 top-16 sm:-right-6',
+  'bottom-left': '-left-2 bottom-24 sm:-left-6',
+  'bottom-right': '-right-2 -bottom-5 sm:-right-5',
+}
 
 const floaties = [
   { c: '#D4A373', size: 120, x: '8%', y: '18%', d: 0 },
@@ -122,40 +130,30 @@ export default function Hero() {
             className="relative mx-auto aspect-[4/5] w-full max-w-md overflow-hidden rounded-[2.5rem] shadow-card"
           >
             <img
-              src="https://picsum.photos/seed/ysc-hero/900/1100"
-              alt="Assorted premium beads"
+              src={HERO_IMAGE}
+              alt="Assorted premium acrylic, pearl, glass & flower beads with gold charms"
               className="h-full w-full object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-ink/30 via-transparent to-transparent" />
           </motion.div>
 
-          {/* glass info card */}
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.6, duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-            className="glass absolute -bottom-5 -left-2 flex items-center gap-3 rounded-2xl p-3 pr-5 sm:-left-6"
-          >
-            <span className="grid h-11 w-11 place-items-center rounded-xl bg-forest/15 text-forest">
-              <Icon name="truck" size={20} />
-            </span>
-            <div>
-              <div className="font-button text-sm font-semibold text-ink">Free shipping</div>
-              <div className="text-xs text-graphite/60">On orders over ₹999</div>
-            </div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.8, duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-            className="glass absolute -right-2 top-8 flex items-center gap-2 rounded-2xl px-4 py-3 sm:-right-5"
-          >
-            <Icon name="shield" size={18} className="text-gold-deep" />
-            <span className="font-button text-xs font-medium text-ink">
-              Quality guaranteed
-            </span>
-          </motion.div>
+          {/* floating trust badges */}
+          {HERO_BADGES.map((b, i) => (
+            <motion.div
+              key={b.text}
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.55 + i * 0.15, duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+              className={`glass absolute z-10 flex items-center gap-2.5 rounded-2xl px-3.5 py-2.5 ${badgePos[b.pos]}`}
+            >
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gold/15 text-gold-deep">
+                <Icon name={b.icon} size={18} />
+              </span>
+              <span className="font-button text-xs font-semibold leading-tight text-ink">
+                {b.text}
+              </span>
+            </motion.div>
+          ))}
         </motion.div>
       </div>
     </section>

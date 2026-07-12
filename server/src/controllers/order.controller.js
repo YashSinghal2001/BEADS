@@ -49,22 +49,49 @@ export const createOrder = asyncHandler(async (req, res) => {
   // 1) Reserve stock atomically (throws 400 if insufficient)
   await inventory.reserveMany(orderItems)
 
-  // 2) Coupon + totals
+  // 2) Coupon + totals — the usedCount increment happens here, atomically
+  // guarded by usageLimit, so two concurrent checkouts can never both claim
+  // the last use of a single-use coupon (previously a plain findByIdAndUpdate
+  // after order creation, which was a TOCTOU race).
   let couponDoc = null
   if (cart.coupon?.code) {
-    couponDoc = await Coupon.findOne({ code: cart.coupon.code })
+    const candidate = await Coupon.findOne({ code: cart.coupon.code })
     const subtotal = orderItems.reduce((s, i) => s + i.price * i.quantity, 0)
-    if (couponDoc && !couponDoc.isValidFor(subtotal).ok) couponDoc = null
+    if (candidate && candidate.isValidFor(subtotal).ok) {
+      const withinPerUserLimit =
+        candidate.perUserLimit == null ||
+        (await Order.countDocuments({ user: req.user._id, couponCode: candidate.code })) < candidate.perUserLimit
+      if (withinPerUserLimit) {
+        couponDoc = await Coupon.findOneAndUpdate(
+          {
+            _id: candidate._id,
+            $or: [{ usageLimit: null }, { $expr: { $lt: ['$usedCount', '$usageLimit'] } }],
+          },
+          { $inc: { usedCount: 1 } },
+          { new: true },
+        )
+      }
+    }
   }
   const totals = computeTotals(orderItems.map((i) => ({ price: i.price, quantity: i.quantity })), couponDoc)
 
+  // Snapshot so a failure partway through checkout can restore the cart
+  // instead of leaving it silently emptied with no order to show for it.
+  const originalCartItems = cart.items
+  const originalCartCoupon = cart.coupon
+  let order = null
+  let payment = null
+  let cartCleared = false
+  let inventoryCommitted = false
+
   try {
     // 3) Create order (reserved, pending)
-    const order = await Order.create({
+    order = await Order.create({
       user: req.user._id,
       items: orderItems,
       shippingAddress,
       billingAddress: billingAddress || shippingAddress,
+      customerEmail: req.user.email,
       ...totals,
       couponCode: couponDoc?.code || null,
       paymentMethod,
@@ -76,7 +103,7 @@ export const createOrder = asyncHandler(async (req, res) => {
     })
 
     // 4) Create the payment record
-    const payment = await Payment.create({
+    payment = await Payment.create({
       user: req.user._id,
       order: order._id,
       amount: totals.total,
@@ -87,10 +114,10 @@ export const createOrder = asyncHandler(async (req, res) => {
     order.payment = payment._id
 
     // common post-order bookkeeping
-    if (couponDoc) await Coupon.findByIdAndUpdate(couponDoc._id, { $inc: { usedCount: 1 } })
     cart.items = []
     cart.coupon = { code: null, type: null, amount: 0 }
     await cart.save()
+    cartCleared = true
     await User.findByIdAndUpdate(req.user._id, {
       $push: { notifications: { type: 'order', title: 'Order placed', body: `Order ${order.orderNumber} received.` } },
     })
@@ -100,6 +127,7 @@ export const createOrder = asyncHandler(async (req, res) => {
     if (paymentMethod === 'cod') {
       // 5a) COD → commit inventory + confirm immediately
       await inventory.commitMany(orderItems)
+      inventoryCommitted = true
       order.inventoryCommitted = true
       await User.findByIdAndUpdate(req.user._id, { $inc: { loyaltyPoints: Math.floor(totals.total / 100) } })
       await transitionOrder(order, 'confirmed', { note: 'Order confirmed (COD)', by: 'system' })
@@ -127,8 +155,28 @@ export const createOrder = asyncHandler(async (req, res) => {
       data: { order, payment: paymentPayload },
     })
   } catch (err) {
-    // rollback the reservation on any failure after reserving
-    await inventory.releaseMany(orderItems).catch(() => {})
+    // Compensating rollback — there's no multi-document transaction here (the
+    // target deployment's replica-set support isn't guaranteed), so any
+    // failure after reserving unwinds everything by hand instead of leaving
+    // an orphaned order/payment or a silently-emptied cart.
+    if (inventoryCommitted) {
+      // Stock was already deducted (not just reserved) — reverse the commit,
+      // same as a customer-initiated cancellation would.
+      await Promise.all(
+        orderItems.map((i) => Product.updateOne({ _id: i.product }, { $inc: { stock: i.quantity, soldCount: -i.quantity } })),
+      ).catch(() => {})
+    } else {
+      await inventory.releaseMany(orderItems).catch(() => {})
+    }
+    if (couponDoc) await Coupon.findByIdAndUpdate(couponDoc._id, { $inc: { usedCount: -1 } }).catch(() => {})
+    if (payment) await Payment.deleteOne({ _id: payment._id }).catch(() => {})
+    if (order) await Order.deleteOne({ _id: order._id }).catch(() => {})
+    if (cartCleared) {
+      await Cart.updateOne(
+        { _id: cart._id },
+        { $set: { items: originalCartItems, coupon: originalCartCoupon } },
+      ).catch(() => {})
+    }
     throw err
   }
 })

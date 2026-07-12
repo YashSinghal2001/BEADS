@@ -66,7 +66,7 @@ export default function Overview() {
                 <div className="flex items-center gap-4">
                   <div className="flex -space-x-3">
                     {o.items.slice(0, 2).map((it, idx) => (
-                      <img key={idx} src={it.image} alt="" className="h-11 w-11 rounded-full border-2 border-white object-cover" />
+                      <img key={idx} src={it.image} alt="" loading="lazy" className="h-11 w-11 rounded-full border-2 border-white object-cover" />
                     ))}
                   </div>
                   <div>
