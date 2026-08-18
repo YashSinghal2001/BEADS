@@ -5,6 +5,7 @@ import { tokenStore } from '../api/tokenStore.js'
 import { apiError } from '../api/axios.js'
 import { toast } from './useToastStore.js'
 import { FREE_SHIPPING_THRESHOLD } from '../lib/constants.js'
+import { cleanVariant } from '../lib/cartVariant.js'
 
 const EMPTY_TOTALS = { subtotal: 0, discount: 0, shipping: 0, tax: 0, total: 0 }
 const isAuthed = () => Boolean(tokenStore.get())
@@ -43,6 +44,7 @@ export const useCartStore = create(
           toast.info('Please sign in to add items to your cart')
           throw new Error('AUTH_REQUIRED')
         }
+        variant = cleanVariant(variant)
         const snapshot = get().items
         // optimistic
         const tempKey = `tmp-${product.id}-${Date.now()}`

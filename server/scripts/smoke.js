@@ -199,6 +199,27 @@ async function main() {
       'cart: different product + same variant (Red) → own line',
     )
 
+    // regression: Product Detail vs Quick Add payloads for a simple product.
+    // The old Product Detail page sent `variant: { size: null, color: null }`
+    // for products without variants; the schema only allows strings or absent
+    // keys, so the request 400'd while Quick Add (`variant: {}`) worked.
+    r = await addLine({ product: pid2, quantity: 1, variant: { size: null, color: null } })
+    assert(
+      r.status === 400 && r.body.message === 'Validation failed',
+      'cart: null variant axes (legacy PD payload) → 400 Validation failed',
+    )
+    assert(
+      ['variant.color', 'variant.size'].every((f) => (r.body.errors || []).some((e) => e.field === f)),
+      'cart: 400 pinpoints variant.color + variant.size',
+    )
+    // explicit `variant: {}` (what Quick Add and the fixed Product Detail send)
+    // must join the same line as variant-omitted adds — same product, same qty math
+    r = await addLine({ product: pid2, quantity: 1, variant: {} })
+    assert(
+      r.status === 201 && r.body.data.items.length === 4 && lineOf(r.body.data.items, pid2)?.quantity === 3,
+      'cart: `variant: {}` (PD/Quick Add shape) merges with variant-omitted line (B×3)',
+    )
+
     // restore the cart to exactly (pid × 2, no variant) for the order flow below
     for (const it of r.body.data.items) {
       if (String(it.product._id) === String(pid) && !(it.variant?.color || '')) continue
