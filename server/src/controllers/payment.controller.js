@@ -12,18 +12,22 @@ import { eventBus, ORDER_EVENTS } from '../services/events.js'
 /**
  * Idempotently mark an order as paid: capture the payment, commit reserved
  * inventory, award loyalty and advance the order to confirmed. Safe to call
- * from both the verify endpoint and the captured webhook.
+ * concurrently from the verify endpoint and the captured webhook — a single
+ * conditional update claims the capture, so exactly one caller runs the side
+ * effects; the loser (or a replay) returns without touching anything.
  */
 export async function markOrderPaid(order, payment, { paymentId = null, signature = null, method = null } = {}) {
-  if (payment.status === 'captured') return order // already processed
+  const set = { status: 'captured', verificationStatus: 'verified' }
+  if (paymentId) set.gatewayPaymentId = paymentId
+  if (signature) set.gatewaySignature = signature
+  if (method) set.paymentMethod = method
 
-  payment.status = 'captured'
-  payment.verificationStatus = 'verified'
-  payment.attempts += 1
-  if (paymentId) payment.gatewayPaymentId = paymentId
-  if (signature) payment.gatewaySignature = signature
-  if (method) payment.paymentMethod = method
-  await payment.save()
+  const claimed = await Payment.findOneAndUpdate(
+    { _id: payment._id, status: { $nin: ['captured', 'refunded'] } },
+    { $set: set, $inc: { attempts: 1 } },
+    { new: true },
+  )
+  if (!claimed) return order // already captured by the other path (or refunded)
 
   order.paymentStatus = 'paid'
   if (!order.inventoryCommitted) {
@@ -36,23 +40,29 @@ export async function markOrderPaid(order, payment, { paymentId = null, signatur
   if (order.orderStatus === 'pending') {
     await transitionOrder(order, 'paid', { note: 'Payment captured', by: 'system' })
     await transitionOrder(order, 'confirmed', { note: 'Order confirmed', by: 'system' })
+  } else {
+    await order.save() // persist paymentStatus/inventory flags when no transition runs
   }
   return order
 }
 
-/** Mark a payment failed and release any held inventory. */
+/**
+ * Mark a payment failed and release any held inventory. Both the failure claim
+ * and the reservation release are conditional updates, so a concurrent capture
+ * wins cleanly and the release can never run twice.
+ */
 export async function handlePaymentFailed(order, payment, reason = 'Payment failed') {
-  if (payment.status === 'captured') return
-  payment.status = 'failed'
-  payment.verificationStatus = 'failed'
-  payment.lastError = reason
-  payment.attempts += 1
-  await payment.save()
-  if (order.inventoryReserved && !order.inventoryCommitted) {
-    await inventory.releaseMany(order.items)
-    order.inventoryReserved = false
-    await order.save()
-  }
+  const claimed = await Payment.findOneAndUpdate(
+    { _id: payment._id, status: { $nin: ['captured', 'refunded'] } },
+    { $set: { status: 'failed', verificationStatus: 'failed', lastError: reason }, $inc: { attempts: 1 } },
+    { new: true },
+  )
+  if (!claimed) return
+  const released = await Order.updateOne(
+    { _id: order._id, inventoryReserved: true, inventoryCommitted: false },
+    { $set: { inventoryReserved: false } },
+  )
+  if (released.modifiedCount === 1) await inventory.releaseMany(order.items)
   eventBus.safeEmit(ORDER_EVENTS.PAYMENT_FAILED, order)
 }
 
@@ -67,6 +77,13 @@ export const verifyPayment = asyncHandler(async (req, res) => {
   if (!payment) throw ApiError.notFound('Payment record not found')
   if (payment.status === 'captured') {
     return sendSuccess(res, { message: 'Payment already verified', data: { order } })
+  }
+
+  // The posted gateway order must be the one this order's payment was created
+  // for — a valid signature belonging to a different (cheaper) order must not
+  // be able to mark this order as paid.
+  if (!payment.gatewayOrderId || payment.gatewayOrderId !== razorpay_order_id) {
+    throw ApiError.badRequest('Payment does not match this order')
   }
 
   const ok = verifyPaymentSignature({
@@ -94,10 +111,14 @@ export const retryPayment = asyncHandler(async (req, res) => {
   if (!payment) throw ApiError.notFound('Payment record not found')
 
   const gw = await createPaymentOrder({ amount: order.total, receipt: `${order.orderNumber}-r${payment.attempts + 1}` })
-  payment.gatewayOrderId = gw.orderId
-  payment.status = 'pending'
-  payment.attempts += 1
-  await payment.save()
+  // Conditional reset: a capture landing between the check above and this write
+  // must not be overwritten back to 'pending'.
+  const reset = await Payment.findOneAndUpdate(
+    { _id: payment._id, status: { $nin: ['captured', 'refunded'] } },
+    { $set: { gatewayOrderId: gw.orderId, status: 'pending' }, $inc: { attempts: 1 } },
+    { new: true },
+  )
+  if (!reset) throw ApiError.badRequest('Order is already paid')
 
   return sendSuccess(res, {
     message: 'Payment re-initialised',

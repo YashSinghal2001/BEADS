@@ -105,8 +105,12 @@ export const addToCart = asyncHandler(async (req, res) => {
   if (product.availableStock < quantity) throw ApiError.badRequest('Not enough stock available')
 
   const cart = await getOrCreate(req.user._id)
+  // A cart line is the same only for the same product AND the same variant —
+  // matching on variant alone merged distinct products that share a key (e.g. `{}`).
   const key = (v) => `${v.color || ''}|${v.size || ''}|${v.sku || ''}`
-  const existing = cart.items.find((it) => key(it.variant) === key(variant))
+  const existing = cart.items.find(
+    (it) => it.product.equals(product._id) && key(it.variant) === key(variant),
+  )
 
   if (existing) existing.quantity = Math.min(99, existing.quantity + quantity)
   else cart.items.push({ product: productId, variant, quantity, priceAtAdd: product.salePrice })

@@ -54,6 +54,21 @@ const env = parsed.data
 
 const has = (...keys) => keys.every((k) => !!env[k])
 
+// Fail fast: in production, taking live payments without webhook signature
+// verification is a silent money-loss mode — a paid order whose browser never
+// completes /payments/verify would be auto-cancelled by the recovery job.
+// Razorpay itself stays optional, so dev/test still run without any keys.
+if (env.NODE_ENV === 'production' && has('RAZORPAY_KEY_ID', 'RAZORPAY_SECRET') && !env.RAZORPAY_WEBHOOK_SECRET) {
+  // eslint-disable-next-line no-console
+  console.error(
+    '\n❌ RAZORPAY_WEBHOOK_SECRET is not set.\n' +
+      '   Razorpay keys are configured, so production must verify webhook signatures.\n' +
+      '   Set RAZORPAY_WEBHOOK_SECRET to the secret configured on the webhook in the\n' +
+      '   Razorpay Dashboard (Render → Environment), then restart.\n',
+  )
+  process.exit(1)
+}
+
 export const config = {
   ...env,
   isProd: env.NODE_ENV === 'production',
