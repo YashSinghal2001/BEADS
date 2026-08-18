@@ -144,7 +144,8 @@ function IconBtn({ name, onClick }) {
 
 function ProductEditor({ product, onClose, onSaved }) {
   const isNew = !product._id
-  const [cats, setCats] = useState([])
+  const [cats, setCats] = useState(null) // null = not loaded yet
+  const [catsError, setCatsError] = useState(false)
   const [form, setForm] = useState(() => ({
     ...blankProduct,
     ...product,
@@ -155,9 +156,19 @@ function ProductEditor({ product, onClose, onSaved }) {
   const [saving, setSaving] = useState(false)
   const set = (patch) => setForm((f) => ({ ...f, ...patch }))
 
-  useEffect(() => {
-    api.categories().then((d) => setCats(d.categories || [])).catch(() => {})
-  }, [])
+  const loadCats = () => {
+    setCatsError(false)
+    api
+      .categories()
+      .then((d) => setCats(d.categories || []))
+      .catch((e) => {
+        // surface the failure — a silent catch here makes the dropdown look
+        // "empty" with no way to tell a fetch error from an empty collection
+        setCatsError(true)
+        toast.error(`Couldn't load categories: ${apiError(e)}`)
+      })
+  }
+  useEffect(loadCats, [])
 
   const addImage = () => set({ images: [...form.images, { url: '' }] })
   const addVariant = () => set({ variants: [...form.variants, { color: '', size: '', sku: '', stock: 0 }] })
@@ -200,7 +211,16 @@ function ProductEditor({ product, onClose, onSaved }) {
       <div className="space-y-5">
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Title" value={form.title} onChange={(e) => set({ title: e.target.value })} />
-          <Select label="Category" value={form.category} onChange={(e) => set({ category: e.target.value })} options={[{ value: '', label: 'Select…' }, ...cats.map((c) => ({ value: c.id || c._id, label: c.name }))]} />
+          <div>
+            <Select label="Category" value={form.category} onChange={(e) => set({ category: e.target.value })} options={[{ value: '', label: 'Select…' }, ...(cats || []).map((c) => ({ value: c.id || c._id, label: c.name }))]} />
+            {catsError ? (
+              <button onClick={loadCats} className="mt-1 text-xs font-medium text-red-500 hover:underline">
+                Categories failed to load — retry
+              </button>
+            ) : cats && cats.length === 0 ? (
+              <p className="mt-1 text-xs text-graphite/55">No categories exist yet — create a category first.</p>
+            ) : null}
+          </div>
         </div>
         <Field label="Short description" value={form.shortDescription} onChange={(e) => set({ shortDescription: e.target.value })} />
         <Textarea label="Description" value={form.description} onChange={(e) => set({ description: e.target.value })} />
