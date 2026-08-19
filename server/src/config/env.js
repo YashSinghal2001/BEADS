@@ -75,6 +75,21 @@ if (env.NODE_ENV === 'production' && has('RAZORPAY_KEY_ID', 'RAZORPAY_SECRET') &
   process.exit(1)
 }
 
+// Same fail-fast for shipping: with Shiprocket enabled in production, an
+// unset webhook token would leave /webhooks/shiprocket open to forged status
+// updates (anyone could mark orders delivered/cancelled). Dev/test and
+// Shiprocket-disabled deployments are unaffected.
+if (env.NODE_ENV === 'production' && has('SHIPROCKET_EMAIL', 'SHIPROCKET_PASSWORD') && !env.SHIPROCKET_WEBHOOK_TOKEN) {
+  // eslint-disable-next-line no-console
+  console.error(
+    '\n❌ SHIPROCKET_WEBHOOK_TOKEN is not set.\n' +
+      '   Shiprocket credentials are configured, so production must authenticate\n' +
+      '   Shiprocket webhook requests. Set SHIPROCKET_WEBHOOK_TOKEN to the token\n' +
+      '   configured on the Shiprocket webhook (Render → Environment), then restart.\n',
+  )
+  process.exit(1)
+}
+
 export const config = {
   ...env,
   isProd: env.NODE_ENV === 'production',

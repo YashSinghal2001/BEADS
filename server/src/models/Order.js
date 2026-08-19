@@ -91,6 +91,9 @@ const orderSchema = new Schema(
       manifest: { type: String, default: null },
       shippingCost: { type: Number, default: 0 },
       status: { type: String, default: null },
+      // Safe, human-readable reason for the last failed creation attempt —
+      // set by dispatchShipment on provider failure, cleared on success.
+      lastError: { type: String, default: null },
       estimatedDelivery: { type: Date, default: null },
     },
 

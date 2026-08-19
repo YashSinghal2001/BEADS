@@ -10,7 +10,7 @@ import { Payment } from '../models/Payment.js'
 import { computeTotals } from '../services/pricing.service.js'
 import { createPaymentOrder } from '../services/payment.service.js'
 import * as inventory from '../services/inventory.service.js'
-import { transitionOrder } from '../services/order.service.js'
+import { transitionOrder, canTransition } from '../services/order.service.js'
 import * as shipping from '../services/shipping.service.js'
 import { generateInvoice, generateLabel, generatePackingSlip } from '../services/document.service.js'
 import { getPagination, buildMeta } from '../utils/pagination.js'
@@ -298,6 +298,53 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
   if (orderStatus === 'delivered' && order.paymentMethod === 'cod') order.paymentStatus = 'paid'
   await transitionOrder(order, orderStatus, { note: note || '', by: 'admin' })
   return sendSuccess(res, { message: 'Order status updated', data: { order } })
+})
+
+/* POST /orders/:id/accept (admin) — accept a confirmed/paid order: move it to
+ * processing, then automatically create the Shiprocket order. The transition
+ * is claimed atomically, so duplicate accepts (double click, browser retry)
+ * collapse to one; dispatchShipment is itself idempotent on top of that.
+ * A shipping failure does NOT roll back acceptance: the order stays in
+ * processing with shipmentTracking { status: 'failed', lastError } and the
+ * response carries shipping.status='failed' so the UI can offer a retry. */
+export const acceptOrder = asyncHandler(async (req, res) => {
+  const order = await Order.findById(req.params.id).select('orderStatus').lean()
+  if (!order) throw ApiError.notFound('Order not found')
+
+  // confirmed/paid → processing; 'processing' itself passes (from === to), so
+  // a repeated Accept is an idempotent no-op that reports the shipping state.
+  if (!canTransition(order.orderStatus, 'processing')) {
+    throw ApiError.badRequest(`Order cannot be accepted from status "${order.orderStatus}"`)
+  }
+
+  if (order.orderStatus !== 'processing') {
+    const claimed = await Order.findOneAndUpdate(
+      { _id: order._id, orderStatus: { $in: ['confirmed', 'paid'] } },
+      {
+        $set: { orderStatus: 'processing' },
+        $push: { timeline: { status: 'processing', note: 'Order accepted', by: 'admin', at: new Date() } },
+      },
+      { new: true },
+    )
+    if (!claimed) {
+      // Lost a race since the read above — fine if a concurrent Accept moved
+      // it to processing already, otherwise the order is no longer acceptable.
+      const now = await Order.findById(order._id).select('orderStatus').lean()
+      if (now?.orderStatus !== 'processing') {
+        throw ApiError.badRequest(`Order cannot be accepted from status "${now?.orderStatus || 'unknown'}"`)
+      }
+    }
+  }
+
+  const result = await shipping.dispatchShipment(order._id, { by: 'admin' })
+  let ship
+  if (result.ok) ship = { status: result.already ? 'already' : 'created' }
+  else if (result.skipped && result.reason === 'in-flight') ship = { status: 'already' }
+  else if (result.skipped) ship = { status: 'skipped', reason: result.reason }
+  else ship = { status: 'failed', message: result.message || 'Shipping provider request failed' }
+
+  const fresh = await Order.findById(order._id).populate('payment').lean()
+  return sendSuccess(res, { message: 'Order accepted', data: { order: fresh, shipping: ship } })
 })
 
 /* POST /orders/:id/ship (admin) — idempotently create the Shiprocket order.

@@ -69,6 +69,28 @@ function OrderDetail({ id, canRefund, canWrite, onClose, onChange }) {
     }
   }
 
+  // Accept → processing + automatic Shiprocket dispatch. The response's
+  // shipping.status distinguishes created / already / failed so the admin
+  // immediately knows whether the provider order exists.
+  const accept = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const resp = await api.acceptOrder(order._id)
+      const s = resp?.shipping?.status
+      if (s === 'created') toast.success('Order accepted and sent to Shiprocket.')
+      else if (s === 'already') toast.success('Order accepted — Shiprocket order already exists.')
+      else if (s === 'failed') toast.error('Order accepted, but Shiprocket creation failed. Use "Retry Shiprocket".')
+      else toast.success('Order accepted.')
+      await load()
+      onChange()
+    } catch (e) {
+      toast.error(apiError(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <Modal open onClose={onClose} title={`Order ${order.orderNumber}`} size="lg">
       <div className="space-y-5">
@@ -105,7 +127,7 @@ function OrderDetail({ id, canRefund, canWrite, onClose, onChange }) {
         </div>
 
         {/* Shipping / Shiprocket */}
-        {(order.shipmentTracking?.shipmentId || order.shipmentTracking?.awb || order.shipmentTracking?.providerOrderId) && (
+        {(order.shipmentTracking?.shipmentId || order.shipmentTracking?.awb || order.shipmentTracking?.providerOrderId || order.shipmentTracking?.lastError) && (
           <div className="rounded-xl border border-ink/10 p-3 text-sm">
             <p className="mb-1.5 font-button text-xs font-semibold uppercase text-graphite/50">Shipping · {order.shipmentTracking.provider || 'shiprocket'}</p>
             <div className="flex flex-wrap gap-x-6 gap-y-1 text-graphite/75">
@@ -117,6 +139,9 @@ function OrderDetail({ id, canRefund, canWrite, onClose, onChange }) {
               {order.shipmentTracking.trackingUrl && <a className="text-gold-deep underline" href={order.shipmentTracking.trackingUrl} target="_blank" rel="noreferrer">Tracking</a>}
               {order.shipmentTracking.label && <a className="text-gold-deep underline" href={order.shipmentTracking.label} target="_blank" rel="noreferrer">Label</a>}
             </div>
+            {order.shipmentTracking.lastError && !order.shipmentTracking.shipmentId && (
+              <p className="mt-1.5 text-xs text-red-500">Last attempt failed: {order.shipmentTracking.lastError}</p>
+            )}
           </div>
         )}
 
@@ -150,8 +175,12 @@ function OrderDetail({ id, canRefund, canWrite, onClose, onChange }) {
         <div className="flex flex-wrap items-center gap-2 border-t border-ink/8 pt-4">
           <Button size="sm" variant="outline" onClick={() => api.downloadInvoice(order._id, order.orderNumber)}><Icon name="download" size={15} /> Invoice</Button>
           <Button size="sm" variant="outline" onClick={() => api.downloadLabel(order._id, order.orderNumber, 'packing')}><Icon name="download" size={15} /> Packing slip</Button>
-          {canWrite && !order.shipmentTracking?.shipmentId && ['confirmed', 'paid', 'processing', 'packed'].includes(order.orderStatus) && (
-            <Button size="sm" variant="primary" disabled={busy} onClick={() => run(() => api.shipOrder(order._id), 'Shiprocket order created')}>Send to Shiprocket</Button>
+          {canWrite && ['confirmed', 'paid'].includes(order.orderStatus) && (
+            <Button size="sm" variant="primary" disabled={busy} onClick={accept}>{busy ? 'Accepting…' : 'Accept Order'}</Button>
+          )}
+          {/* Retry only for a failed/stale attempt: accepted (processing/packed) but no provider order yet */}
+          {canWrite && !order.shipmentTracking?.shipmentId && ['processing', 'packed'].includes(order.orderStatus) && (
+            <Button size="sm" variant="primary" disabled={busy} onClick={() => run(() => api.shipOrder(order._id), 'Shiprocket order created')}>Retry Shiprocket</Button>
           )}
           {canWrite && (
             <div className="ml-auto flex items-center gap-2">

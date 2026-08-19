@@ -84,9 +84,12 @@ export const shiprocketWebhook = asyncHandler(async (req, res) => {
   const claimed = await claimEvent('shiprocket', eventId, srStatus || 'unknown', body)
   if (!claimed) return res.status(200).json({ success: true, message: 'Duplicate ignored' })
 
-  const order = awb
-    ? await Order.findOne({ 'shipmentTracking.awb': awb })
-    : await Order.findOne({ orderNumber: body.order_id })
+  // The first webhook carries a newly assigned AWB our order doesn't have
+  // yet, so an AWB miss must fall back to the channel order id (order_id is
+  // our orderNumber — it's what createShipment sends to Shiprocket).
+  const order =
+    (awb ? await Order.findOne({ 'shipmentTracking.awb': awb }) : null) ||
+    (body.order_id ? await Order.findOne({ orderNumber: String(body.order_id) }) : null)
 
   if (order) {
     const map = {

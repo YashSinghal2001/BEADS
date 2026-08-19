@@ -18,6 +18,7 @@ router.use(protect)
 // Admin (declared before '/:id' to avoid route shadowing)
 router.get('/admin/all', isAdmin, ctrl.listAllOrders)
 router.patch('/:id/status', isAdmin, validate(updateOrderStatusSchema), ctrl.updateOrderStatus)
+router.post('/:id/accept', isAdmin, validate({ params: idParam }), ctrl.acceptOrder)
 router.post('/:id/ship', isAdmin, validate({ params: idParam }), ctrl.createShipment)
 router.get('/:id/label', isAdmin, validate({ params: idParam }), ctrl.downloadLabel)
 

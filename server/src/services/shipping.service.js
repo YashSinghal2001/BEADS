@@ -118,24 +118,60 @@ export async function createShipment(order) {
   }
 }
 
-/* ------------------- Automatic, idempotent dispatch ------------------- */
+/**
+ * Find an existing Shiprocket order carrying our orderNumber (sent to the
+ * provider as order_id, echoed back as channel_order_id). Duplicate guard for
+ * retries: a previous attempt may have succeeded remotely while the local
+ * save was lost (timeout/crash between the API call and the DB write).
+ * Best-effort — returns null on any failure or ambiguity so the caller falls
+ * back to normal creation. Never throws.
+ */
+export async function findProviderOrder(orderNumber) {
+  try {
+    const data = await sr(`/orders?search=${encodeURIComponent(orderNumber)}`)
+    const match = (Array.isArray(data.data) ? data.data : []).find(
+      (o) => String(o.channel_order_id) === String(orderNumber),
+    )
+    if (!match?.id) return null
+    const shipments = Array.isArray(match.shipments) ? match.shipments : [match.shipments].filter(Boolean)
+    return {
+      provider: 'shiprocket',
+      providerOrderId: String(match.id),
+      shipmentId: String(shipments[0]?.id || match.shipment_id || match.id),
+      status: String(match.status || 'created').toLowerCase(),
+    }
+  } catch {
+    return null
+  }
+}
+
+/* ---------------------- Idempotent dispatch on accept ---------------------- */
 
 /** Order statuses for which creating a shipment is legitimate. */
 const DISPATCHABLE = ['confirmed', 'paid', 'processing', 'packed']
 const IN_FLIGHT = 'creating'
 
 /**
- * Idempotently create the Shiprocket order for a store order.
+ * Idempotently create the Shiprocket order for a store order. Triggered by
+ * the admin accepting an order (POST /orders/:id/accept) or retrying a failed
+ * attempt (POST /orders/:id/ship).
  *
  * Exactly-once by construction: a conditional update claims the order
  * (shipmentId still null and no claim in flight) before any network call, so
- * concurrent triggers — verify + webhook races, webhook replays, repeated
- * admin clicks — collapse to a single creation. On provider failure the claim
- * is released so a later retry (event or admin action) can run again.
+ * concurrent triggers — double-clicked Accept, browser retries, repeated
+ * admin clicks — collapse to a single creation. On provider failure the
+ * claim moves to 'failed' (with a safe lastError for the admin UI), which a
+ * later retry can claim again.
+ *
+ * When the claimed order shows a previous attempt ('failed', or a stale
+ * 'creating' claim reclaimed via `reclaimStale`), the provider is first asked
+ * whether our orderNumber already exists there — covering the case where the
+ * create succeeded remotely but the response was lost locally — and an
+ * existing provider order is recorded instead of creating a duplicate.
  *
  * `reclaimStale` lets the admin retry an order whose previous attempt crashed
  * mid-flight (claim held, no shipmentId) — never exposed to automatic paths.
- * Never throws when the trigger is an event; returns a result object.
+ * Never throws; returns a result object.
  */
 export async function dispatchShipment(orderId, { by = 'system', reclaimStale = false } = {}) {
   if (!isShippingEnabled()) {
@@ -148,22 +184,29 @@ export async function dispatchShipment(orderId, { by = 'system', reclaimStale = 
     orderStatus: { $in: DISPATCHABLE },
     ...(reclaimStale ? {} : { 'shipmentTracking.status': { $ne: IN_FLIGHT } }),
   }
+  // `new: false` → pre-claim snapshot, so the previous attempt state is known.
+  // No field used below (address, items, orderNumber, orderStatus) is touched
+  // by the claim update itself.
   const order = await Order.findOneAndUpdate(
     claim,
     { $set: { 'shipmentTracking.status': IN_FLIGHT } },
-    { new: true },
+    { new: false },
   )
   if (!order) {
     const existing = await Order.findById(orderId).select('shipmentTracking orderStatus').lean()
     if (existing?.shipmentTracking?.shipmentId) {
       return { ok: true, already: true, shipment: existing.shipmentTracking }
     }
-    return { ok: false, skipped: true, reason: existing ? 'not-eligible-or-in-flight' : 'not-found' }
+    if (!existing) return { ok: false, skipped: true, reason: 'not-found' }
+    return {
+      ok: false,
+      skipped: true,
+      reason: existing.shipmentTracking?.status === IN_FLIGHT ? 'in-flight' : 'not-eligible',
+    }
   }
 
-  try {
-    const shipment = await createShipment(order)
-    const updated = await Order.findOneAndUpdate(
+  const record = (shipment, note) =>
+    Order.findOneAndUpdate(
       { _id: order._id, 'shipmentTracking.status': IN_FLIGHT },
       {
         $set: {
@@ -171,28 +214,43 @@ export async function dispatchShipment(orderId, { by = 'system', reclaimStale = 
           'shipmentTracking.providerOrderId': shipment.providerOrderId,
           'shipmentTracking.shipmentId': shipment.shipmentId,
           'shipmentTracking.status': shipment.status,
+          'shipmentTracking.lastError': null,
         },
-        $push: {
-          timeline: {
-            status: order.orderStatus,
-            note: `Shiprocket order ${shipment.providerOrderId} (shipment ${shipment.shipmentId}) created`,
-            by,
-            at: new Date(),
-          },
-        },
+        $push: { timeline: { status: order.orderStatus, note, by, at: new Date() } },
       },
       { new: true },
     )
+
+  try {
+    const priorStatus = order.shipmentTracking?.status || null
+    if (priorStatus === 'failed' || (reclaimStale && priorStatus === IN_FLIGHT)) {
+      const found = await findProviderOrder(order.orderNumber)
+      if (found) {
+        const updated = await record(found, `Shiprocket order ${found.providerOrderId} recovered from a previous attempt`)
+        logger.info(`Shiprocket order recovered for ${order.orderNumber}: order_id=${found.providerOrderId}`)
+        return { ok: true, already: true, recovered: true, shipment: found, order: updated }
+      }
+    }
+
+    const shipment = await createShipment(order)
+    const updated = await record(shipment, `Shiprocket order ${shipment.providerOrderId} (shipment ${shipment.shipmentId}) created`)
     logger.info(`Shiprocket order created for ${order.orderNumber}: order_id=${shipment.providerOrderId} shipment_id=${shipment.shipmentId}`)
     return { ok: true, created: true, shipment, order: updated }
   } catch (err) {
-    // Release the claim so the event/admin retry path can run again.
+    // Record the failure for the admin UI and release the claim — 'failed' is
+    // claimable again, so the accept response can offer "Retry Shiprocket".
+    // Only our own error messages land in lastError (provider bodies are
+    // logged, never rethrown), so nothing sensitive is stored or exposed.
+    const message = String(err?.message || 'Shipping provider request failed').slice(0, 300)
     await Order.updateOne(
       { _id: order._id, 'shipmentTracking.status': IN_FLIGHT },
-      { $set: { 'shipmentTracking.status': null } },
+      {
+        $set: { 'shipmentTracking.status': 'failed', 'shipmentTracking.lastError': message },
+        $push: { timeline: { status: order.orderStatus, note: 'Shiprocket creation failed', by, at: new Date() } },
+      },
     ).catch(() => {})
     logger.error(`Shiprocket dispatch failed for ${order.orderNumber}: ${err.message}`)
-    return { ok: false, error: err }
+    return { ok: false, error: err, message }
   }
 }
 

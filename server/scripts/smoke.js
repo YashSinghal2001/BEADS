@@ -45,6 +45,7 @@ async function main() {
   // order_id so duplicate-creation bugs fail the run.
   const http = await import('node:http')
   const srCreates = new Map() // order_id → count
+  const srOrders = new Map() // order_id → { id, shipment_id } (what the provider holds)
   let srSeq = 9000
   let srFailNext = false
   let srLastPayload = null
@@ -66,6 +67,13 @@ async function main() {
       if (req.url === '/settings/company/pickup') {
         return json(200, { data: { shipping_address: [{ pickup_location: 'Home', is_primary_location: 1, city: 'Delhi', pin_code: '110085' }] } })
       }
+      if (req.url.startsWith('/orders?search=')) {
+        // order lookup by our orderNumber (channel_order_id) — the timeout
+        // duplicate guard queries this before re-creating on a retry
+        const q = decodeURIComponent(req.url.slice('/orders?search='.length))
+        const hit = srOrders.get(q)
+        return json(200, { data: hit ? [{ id: hit.id, channel_order_id: q, status: 'NEW', shipments: [{ id: hit.shipment_id }] }] : [] })
+      }
       if (req.url === '/orders/create/adhoc') {
         if (srFailNext) {
           srFailNext = false
@@ -80,6 +88,7 @@ async function main() {
         srCreates.set(body.order_id, (srCreates.get(body.order_id) || 0) + 1)
         srLastPayload = body
         srSeq += 1
+        srOrders.set(body.order_id, { id: srSeq, shipment_id: srSeq + 100000 })
         return json(200, { order_id: srSeq, shipment_id: srSeq + 100000, status: 'NEW' })
       }
       return json(404, { message: 'not found' })
@@ -88,21 +97,13 @@ async function main() {
   await new Promise((r) => srStub.listen(0, '127.0.0.1', r))
   process.env.SHIPROCKET_EMAIL = 'smoke@test.local'
   process.env.SHIPROCKET_PASSWORD = 'smoke-password'
+  process.env.SHIPROCKET_WEBHOOK_TOKEN = 'sr-hook-token'
   process.env.SHIPROCKET_API_BASE = `http://127.0.0.1:${srStub.address().port}`
   // SHIPROCKET_PICKUP_LOCATION deliberately unset — the auto-detection path
   // (primary pickup address from the provider) is what production uses.
   delete process.env.SHIPROCKET_PICKUP_LOCATION
 
-  /* Poll until fn() is truthy or the timeout elapses. */
-  const waitFor = async (fn, ms = 4000) => {
-    const until = Date.now() + ms
-    for (;;) {
-      const v = await fn()
-      if (v) return v
-      if (Date.now() > until) return null
-      await new Promise((r) => setTimeout(r, 100))
-    }
-  }
+  const sleep = (ms) => new Promise((res) => setTimeout(res, ms))
 
   const { createApp } = await import('../src/app.js')
   const { connectDB, disconnectDB } = await import('../src/config/db.js')
@@ -357,6 +358,12 @@ async function main() {
     const pay = await Payment.findOne({ order: orderId }).lean()
     assert(pay && pay.gateway === 'cod', 'Payment record created (cod)')
 
+    // pay-time auto-dispatch is REMOVED: a confirmed order waits for admin accept
+    await sleep(400)
+    const codFresh = await Order.findById(orderId).lean()
+    assert(codFresh.orderStatus === 'confirmed' && !codFresh.shipmentTracking?.shipmentId, 'no auto-dispatch: confirmed COD order waits for admin accept')
+    assert(!srCreates.has(codFresh.orderNumber), 'no auto-dispatch: provider never called at checkout')
+
     // invalid vs valid status transition
     r = await json(await fetch(api(`/api/orders/${orderId}/status`), { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }, body: JSON.stringify({ orderStatus: 'delivered' }) }))
     assert(r.status === 400, 'invalid transition confirmed→delivered → 400')
@@ -393,7 +400,7 @@ async function main() {
     r = await json(await fetch(api(`/api/orders/${orderId}/reorder`), { method: 'POST', headers: { Authorization: `Bearer ${token}` } }))
     assert(r.status === 200 && r.body.data.added >= 1, 'POST /orders/:id/reorder → items re-added')
 
-    // ---- Shiprocket auto-dispatch (event-driven, idempotent) ----
+    // ---- Shiprocket dispatch on admin acceptance (idempotent) ----
     const shippingSvc = await import('../src/services/shipping.service.js')
     const shipAddr = { fullName: 'Test User', phone: '9876543210', addressLine1: '1 Test St', city: 'Mumbai', state: 'MH', pincode: '400001' }
     const buyerDoc = await User.findOne({ email: 'test@ysc.com' }).lean()
@@ -413,52 +420,118 @@ async function main() {
         orderStatus: 'confirmed',
         ...overrides,
       })
+    const acceptPost = async (id, bearer = adminToken) =>
+      json(await fetch(api(`/api/orders/${id}/accept`), { method: 'POST', headers: { Authorization: `Bearer ${bearer}` } }))
+    const shipPost = async (id, bearer = adminToken) =>
+      json(await fetch(api(`/api/orders/${id}/ship`), { method: 'POST', headers: { Authorization: `Bearer ${bearer}` } }))
+    const prodForShip = await Product.findOne({ isActive: true, stock: { $gte: 5 } }).lean()
 
-    // (a) the confirmed COD order placed above was dispatched automatically
-    const codShipped = await waitFor(async () => {
-      const o = await Order.findById(orderId).lean()
-      return o?.shipmentTracking?.shipmentId ? o : null
-    })
-    assert(Boolean(codShipped), 'shiprocket: confirmed order auto-dispatched after checkout')
+    // a confirmed order left alone must NEVER be dispatched (re-checked at the end)
+    const untouched = await mkOrder(prodForShip)
+
+    // (a) Accept: confirmed → processing + Shiprocket order created automatically
+    const acc = await mkOrder(prodForShip)
+    r = await acceptPost(acc._id)
+    assert(r.status === 200 && r.body.data?.order?.orderStatus === 'processing', 'accept: confirmed → processing')
+    assert(r.body.data?.shipping?.status === 'created', 'accept: response carries shipping.status=created')
+    const accDoc = await Order.findById(acc._id).lean()
     assert(
-      codShipped?.shipmentTracking?.provider === 'shiprocket' && Boolean(codShipped?.shipmentTracking?.providerOrderId),
-      'shiprocket: provider + provider order id persisted on the order',
+      accDoc.shipmentTracking?.provider === 'shiprocket' && Boolean(accDoc.shipmentTracking?.providerOrderId) && Boolean(accDoc.shipmentTracking?.shipmentId),
+      'accept: provider + shipment ids persisted on the order',
     )
-    assert(srCreates.get(codShipped?.orderNumber) === 1, 'shiprocket: exactly one provider order for the checkout order')
-    assert(codShipped?.timeline?.some((t) => /shiprocket order/i.test(t.note || '')), 'shiprocket: timeline records the provider order')
+    assert(srCreates.get(accDoc.orderNumber) === 1, 'accept: exactly one provider order created')
+    assert(
+      accDoc.timeline.some((t) => t.status === 'processing' && /accepted/i.test(t.note || '')) && accDoc.timeline.some((t) => /shiprocket order/i.test(t.note || '')),
+      'accept: timeline records acceptance + provider order',
+    )
     assert(srLastPayload?.pickup_location === 'Home', 'shiprocket: pickup_location auto-resolved from primary pickup address')
     assert(
       Boolean(srLastPayload?.billing_email) && Boolean(srLastPayload?.billing_phone) && srLastPayload?.billing_last_name !== undefined,
       'shiprocket: payload carries billing email/phone/last name',
     )
 
-    // (b) admin retry on an already-dispatched order → idempotent, no duplicate
-    r = await json(await fetch(api(`/api/orders/${orderId}/ship`), { method: 'POST', headers: { Authorization: `Bearer ${adminToken}` } }))
-    assert(r.status === 200 && /already/i.test(r.body.message || ''), 'shiprocket: /:id/ship on dispatched order → already exists')
-    assert(srCreates.get(codShipped?.orderNumber) === 1, 'shiprocket: admin retry created no duplicate')
+    // (b) repeated Accept (double click / replay) → idempotent, no duplicate
+    r = await acceptPost(acc._id)
+    assert(r.status === 200 && r.body.data?.shipping?.status === 'already', 'accept: repeat accept → shipping.status=already')
+    assert(srCreates.get(accDoc.orderNumber) === 1, 'accept: repeat accept created no duplicate')
+    r = await shipPost(acc._id)
+    assert(r.status === 200 && /already/i.test(r.body.message || ''), 'shiprocket: /:id/ship after success → already exists')
+    assert(srCreates.get(accDoc.orderNumber) === 1, 'shiprocket: retry after success created no duplicate')
 
-    // (c) pending (unpaid) order → dispatch refused everywhere
-    const prodForShip = await Product.findOne({ isActive: true, stock: { $gte: 5 } }).lean()
+    // concurrent double-click on Accept → one transition, one provider order
+    const dbl = await mkOrder(prodForShip)
+    const [dr1, dr2] = await Promise.all([acceptPost(dbl._id), acceptPost(dbl._id)])
+    assert(dr1.status === 200 && dr2.status === 200, 'accept: concurrent double accept → both requests succeed')
+    const dblDoc = await Order.findById(dbl._id).lean()
+    assert(
+      dblDoc.orderStatus === 'processing' && dblDoc.timeline.filter((t) => /accepted/i.test(t.note || '')).length === 1,
+      'accept: concurrent double accept → exactly one transition',
+    )
+    assert(srCreates.get(dblDoc.orderNumber) === 1, 'accept: concurrent double accept → one provider order')
+
+    // (c) accept refused for ineligible states; dispatch refused everywhere
     const pendingOrder = await mkOrder(prodForShip, { paymentMethod: 'razorpay', paymentStatus: 'pending', orderStatus: 'pending' })
+    r = await acceptPost(pendingOrder._id)
+    assert(r.status === 400, 'accept: pending order → 400')
+    const cancelledOrder = await mkOrder(prodForShip, { orderStatus: 'cancelled' })
+    r = await acceptPost(cancelledOrder._id)
+    assert(r.status === 400, 'accept: cancelled order → 400')
     let disp = await shippingSvc.dispatchShipment(pendingOrder._id, { by: 'system' })
     assert(disp.ok === false && disp.skipped === true, 'shiprocket: pending order → dispatch refused (not eligible)')
-    r = await json(await fetch(api(`/api/orders/${pendingOrder._id}/ship`), { method: 'POST', headers: { Authorization: `Bearer ${adminToken}` } }))
+    r = await shipPost(pendingOrder._id)
     assert(r.status === 400, 'shiprocket: /:id/ship on pending order → 400')
-    assert(!srCreates.has(pendingOrder.orderNumber), 'shiprocket: pending order never reached the provider')
+    assert(
+      !srCreates.has(pendingOrder.orderNumber) && !srCreates.has(cancelledOrder.orderNumber),
+      'shiprocket: refused orders never reached the provider',
+    )
 
-    // (d) provider failure → no partial state, claim released; admin retry works
+    // (d) customer tokens are forbidden on both admin endpoints
+    r = await acceptPost(acc._id, token)
+    assert(r.status === 403, 'accept: customer token → 403')
+    r = await shipPost(acc._id, token)
+    assert(r.status === 403, 'ship: customer token → 403')
+
+    // (e) Accept with provider 500 → order stays accepted, failure recorded safely
     const failOrder = await mkOrder(prodForShip)
     srFailNext = true
-    disp = await shippingSvc.dispatchShipment(failOrder._id, { by: 'system' })
-    assert(disp.ok === false && !disp.skipped, 'shiprocket: provider 500 → dispatch reports failure safely')
+    r = await acceptPost(failOrder._id)
+    assert(r.status === 200 && r.body.data?.order?.orderStatus === 'processing', 'accept: provider 500 → order still accepted (processing)')
+    assert(r.body.data?.shipping?.status === 'failed' && Boolean(r.body.data?.shipping?.message), 'accept: provider 500 → shipping.status=failed with message')
     let failDoc = await Order.findById(failOrder._id).lean()
-    assert(!failDoc.shipmentTracking.shipmentId && failDoc.shipmentTracking.status === null, 'shiprocket: failure leaves no partial state (claim released)')
-    r = await json(await fetch(api(`/api/orders/${failOrder._id}/ship`), { method: 'POST', headers: { Authorization: `Bearer ${adminToken}` } }))
+    assert(failDoc.orderStatus === 'processing' && !failDoc.shipmentTracking.shipmentId && !failDoc.shipmentTracking.providerOrderId, 'accept-fail: order remains processing, no provider ids')
+    assert(
+      failDoc.shipmentTracking.status === 'failed' && typeof failDoc.shipmentTracking.lastError === 'string' && failDoc.shipmentTracking.lastError.length > 0,
+      'accept-fail: shipmentTracking.status=failed + lastError recorded',
+    )
+    assert(failDoc.timeline.some((t) => /shiprocket creation failed/i.test(t.note || '')), 'accept-fail: timeline notes the failure')
+    assert(!srCreates.has(failDoc.orderNumber), 'accept-fail: no provider order created')
+    assert(!/password|secret|bearer|authorization/i.test(failDoc.shipmentTracking.lastError), 'accept-fail: lastError carries no credentials')
+
+    // (f) retry after failure → created, exactly one provider order, error cleared
+    r = await shipPost(failOrder._id)
     failDoc = await Order.findById(failOrder._id).lean()
     assert(r.status === 201 && Boolean(failDoc.shipmentTracking.shipmentId), 'shiprocket: admin retry after failure → created')
+    assert(failDoc.shipmentTracking.status !== 'failed' && failDoc.shipmentTracking.lastError === null, 'shiprocket: success clears failed status + lastError')
     assert(srCreates.get(failDoc.orderNumber) === 1, 'shiprocket: failed attempt + retry → exactly one provider order')
 
-    // (e) concurrent dispatch of the same order → single creation
+    // (g) timeout duplicate guard: provider succeeded but the local save was
+    // lost → retry recovers the existing provider order instead of re-creating
+    const lost = await mkOrder(prodForShip)
+    r = await acceptPost(lost._id)
+    let lostDoc = await Order.findById(lost._id).lean()
+    const lostProviderId = lostDoc.shipmentTracking.providerOrderId
+    assert(r.status === 200 && Boolean(lostProviderId), 'timeout-guard: setup order dispatched')
+    await Order.updateOne(
+      { _id: lost._id },
+      { $set: { 'shipmentTracking.providerOrderId': null, 'shipmentTracking.shipmentId': null, 'shipmentTracking.status': 'failed', 'shipmentTracking.lastError': 'simulated local timeout' } },
+    )
+    r = await shipPost(lost._id)
+    lostDoc = await Order.findById(lost._id).lean()
+    assert(r.status === 200 && /already/i.test(r.body.message || ''), 'timeout-guard: retry reports existing order instead of re-creating')
+    assert(lostDoc.shipmentTracking.providerOrderId === lostProviderId, 'timeout-guard: original provider order reference recovered')
+    assert(srCreates.get(lostDoc.orderNumber) === 1, 'timeout-guard: no second provider order created')
+
+    // (h) concurrent dispatch of the same order → single creation
     const dualOrder = await mkOrder(prodForShip)
     const [d1, d2] = await Promise.all([
       shippingSvc.dispatchShipment(dualOrder._id, { by: 'system' }),
@@ -467,10 +540,37 @@ async function main() {
     assert([d1, d2].filter((x) => x.created).length === 1, 'shiprocket: concurrent dispatch → exactly one creator')
     assert(srCreates.get(dualOrder.orderNumber) === 1, 'shiprocket: concurrent dispatch → one provider order')
 
-    // (f) admin order-detail envelope — the contract the admin UI unwraps
+    // (i) accept also dispatches an order already moved to processing manually
+    // (the checkout COD order was transitioned by the /status tests above)
+    r = await acceptPost(orderId)
+    assert(r.status === 200 && r.body.data?.shipping?.status === 'created', 'accept: processing order without provider order → dispatches')
+
+    // (j) admin order-detail envelope — the contract the admin UI unwraps
     r = await json(await fetch(api(`/api/orders/${orderId}`), { headers: { Authorization: `Bearer ${adminToken}` } }))
-    assert(r.status === 200 && r.body.data?.order?.orderNumber === codShipped?.orderNumber, 'GET /orders/:id (admin) → { data: { order } } envelope')
+    assert(r.status === 200 && r.body.data?.order?.orderNumber === codFresh.orderNumber, 'GET /orders/:id (admin) → { data: { order } } envelope')
     assert(Boolean(r.body.data?.order?.shipmentTracking?.shipmentId), 'GET /orders/:id → Shiprocket references present in detail')
+
+    // (k) Shiprocket webhook: token-authenticated, updates AWB/courier/status, idempotent
+    const hookSend = async (bodyObj, tokenHeader) => {
+      const headers = { 'Content-Type': 'application/json' }
+      if (tokenHeader) headers['x-api-key'] = tokenHeader
+      return json(await fetch(api('/api/webhooks/shiprocket'), { method: 'POST', headers, body: JSON.stringify(bodyObj) }))
+    }
+    const srHook = { awb: 'SMKAWB123', current_status: 'picked up', order_id: accDoc.orderNumber, courier_name: 'Delhivery', etd: '2026-08-25 10:00:00' }
+    r = await hookSend(srHook, null)
+    assert(r.status === 401, 'sr-webhook: missing token → 401')
+    r = await hookSend(srHook, 'wrong-token')
+    assert(r.status === 401, 'sr-webhook: wrong token → 401')
+    r = await hookSend(srHook, 'sr-hook-token')
+    let hooked = await Order.findById(acc._id).lean()
+    assert(r.status === 200 && hooked.shipmentTracking.awb === 'SMKAWB123' && hooked.shipmentTracking.courier === 'Delhivery', 'sr-webhook: AWB + courier recorded')
+    assert(hooked.orderStatus === 'shipped' && hooked.shipmentTracking.status === 'picked up', 'sr-webhook: picked up → order shipped')
+    assert(hooked.shipmentTracking.estimatedDelivery instanceof Date || Boolean(hooked.shipmentTracking.estimatedDelivery), 'sr-webhook: ETA captured')
+    r = await hookSend(srHook, 'sr-hook-token')
+    assert(r.status === 200 && /duplicate/i.test(r.body.message || ''), 'sr-webhook: replayed event → duplicate ignored')
+    r = await hookSend({ awb: 'SMKAWB123', current_status: 'delivered', order_id: accDoc.orderNumber }, 'sr-hook-token')
+    hooked = await Order.findById(acc._id).lean()
+    assert(r.status === 200 && hooked.orderStatus === 'delivered' && hooked.shipmentTracking.status === 'delivered', 'sr-webhook: delivered → order delivered')
 
     // analytics (admin)
     r = await json(await fetch(api('/api/analytics/overview'), { headers: { Authorization: `Bearer ${adminToken}` } }))
@@ -561,11 +661,12 @@ async function main() {
       'race: single paid/confirmed timeline entries',
     )
     assert((await Payment.findById(A.p._id).lean()).status === 'captured', 'race: payment captured')
-    const raceShip = await waitFor(async () => {
-      const o = await Order.findById(A.o._id).lean()
-      return o?.shipmentTracking?.shipmentId ? o : null
-    })
-    assert(Boolean(raceShip) && srCreates.get(raceShip?.orderNumber) === 1, 'race: concurrent capture → exactly one Shiprocket order')
+    await sleep(300)
+    let raceDoc = await Order.findById(A.o._id).lean()
+    assert(!raceDoc.shipmentTracking?.shipmentId && !srCreates.has(raceDoc.orderNumber), 'race: capture alone does not dispatch (waits for admin accept)')
+    r = await acceptPost(A.o._id)
+    raceDoc = await Order.findById(A.o._id).lean()
+    assert(r.status === 200 && srCreates.get(raceDoc.orderNumber) === 1, 'race: accept after concurrent capture → exactly one Shiprocket order')
 
     // (2) webhook security + idempotency over HTTP
     const B = await mkPrepaid('order_SMK_HOOK')
@@ -591,11 +692,12 @@ async function main() {
       r.status === 200 && sH2.soldCount === sH1.soldCount && ptsH2 === ptsH0 + Math.floor(B.o.total / 100),
       'webhook: re-notify of captured payment → no duplicate side effects',
     )
-    const hookShip = await waitFor(async () => {
-      const o = await Order.findById(B.o._id).lean()
-      return o?.shipmentTracking?.shipmentId ? o : null
-    })
-    assert(Boolean(hookShip) && srCreates.get(hookShip?.orderNumber) === 1, 'webhook: replayed capture events → exactly one Shiprocket order')
+    await sleep(300)
+    let hookOrderDoc = await Order.findById(B.o._id).lean()
+    assert(!hookOrderDoc.shipmentTracking?.shipmentId && !srCreates.has(hookOrderDoc.orderNumber), 'webhook: replayed captures do not dispatch (waits for admin accept)')
+    r = await acceptPost(B.o._id)
+    hookOrderDoc = await Order.findById(B.o._id).lean()
+    assert(r.status === 200 && srCreates.get(hookOrderDoc.orderNumber) === 1, 'webhook: accept after replayed captures → exactly one Shiprocket order')
 
     // (3) browser verification
     const C = await mkPrepaid('order_SMK_VER')
@@ -641,11 +743,12 @@ async function main() {
       r.status === 200 && /already/i.test(r.body.message || '') && sV2.soldCount === sV1.soldCount && ptsV2 === ptsV0 + Math.floor(C.o.total / 100),
       'verify: repeat verification → already-verified no-op',
     )
-    const verShip = await waitFor(async () => {
-      const o = await Order.findById(C.o._id).lean()
-      return o?.shipmentTracking?.shipmentId ? o : null
-    })
-    assert(Boolean(verShip) && srCreates.get(verShip?.orderNumber) === 1, 'verify: repeated verification → exactly one Shiprocket order')
+    await sleep(300)
+    let verDoc = await Order.findById(C.o._id).lean()
+    assert(!verDoc.shipmentTracking?.shipmentId && !srCreates.has(verDoc.orderNumber), 'verify: verification does not dispatch (waits for admin accept)')
+    r = await acceptPost(C.o._id)
+    verDoc = await Order.findById(C.o._id).lean()
+    assert(r.status === 200 && srCreates.get(verDoc.orderNumber) === 1, 'verify: accept after repeated verification → exactly one Shiprocket order')
     const dOrderDoc = await Order.findById(D.o._id).lean()
     assert(
       !dOrderDoc.shipmentTracking?.shipmentId && !srCreates.has(dOrderDoc.orderNumber),
@@ -679,6 +782,13 @@ async function main() {
     assert(noSecret.code === 1 && noSecret.stderr.includes('RAZORPAY_WEBHOOK_SECRET'), 'env: prod + razorpay keys w/o webhook secret → boot refused')
     assert(runEnvCheck({ RAZORPAY_WEBHOOK_SECRET: 'whsec_x' }).code === 0, 'env: prod with webhook secret → boots')
     assert(runEnvCheck({ NODE_ENV: 'development' }).code === 0, 'env: development w/o webhook secret still allowed')
+
+    // Shiprocket enabled in production requires the webhook token (audit fix)
+    const srEnv = { RAZORPAY_WEBHOOK_SECRET: 'whsec_x', SHIPROCKET_EMAIL: 'sr@x.com', SHIPROCKET_PASSWORD: 'sr-pass' }
+    const noSrToken = runEnvCheck(srEnv)
+    assert(noSrToken.code === 1 && noSrToken.stderr.includes('SHIPROCKET_WEBHOOK_TOKEN'), 'env: prod + shiprocket creds w/o webhook token → boot refused')
+    assert(runEnvCheck({ ...srEnv, SHIPROCKET_WEBHOOK_TOKEN: 'tok_x' }).code === 0, 'env: prod shiprocket with webhook token → boots')
+    assert(runEnvCheck({ ...srEnv, NODE_ENV: 'development' }).code === 0, 'env: development w/o shiprocket token still allowed')
 
     // ---- Phase 5: admin CMS ----
     const adminHdr = { Authorization: `Bearer ${adminToken}` }
@@ -767,7 +877,14 @@ async function main() {
     r = await json(await fetch(api('/api/nope')))
     assert(r.status === 404, 'GET /api/nope → 404 notFound')
 
-    // ---- Shiprocket global invariant: never a duplicate provider order ----
+    // ---- Shiprocket global invariants ----
+    // a confirmed order that was never accepted must never have been dispatched
+    const untouchedDoc = await Order.findById(untouched._id).lean()
+    assert(
+      untouchedDoc.orderStatus === 'confirmed' && !untouchedDoc.shipmentTracking?.shipmentId && !srCreates.has(untouchedDoc.orderNumber),
+      'shiprocket: confirmed order without accept → no provider order (entire run)',
+    )
+    // never a duplicate provider order anywhere in the run
     const srDups = [...srCreates.entries()].filter(([, n]) => n > 1)
     assert(
       srDups.length === 0,
