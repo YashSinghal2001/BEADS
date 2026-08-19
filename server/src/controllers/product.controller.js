@@ -2,6 +2,10 @@ import { asyncHandler } from '../utils/asyncHandler.js'
 import { sendSuccess } from '../utils/ApiResponse.js'
 import { ApiError } from '../utils/ApiError.js'
 import { Product } from '../models/Product.js'
+import { Order } from '../models/Order.js'
+import { Cart } from '../models/Cart.js'
+import { Wishlist } from '../models/Wishlist.js'
+import { Review } from '../models/Review.js'
 import { isAdminRole } from '../middleware/rbac.middleware.js'
 import { getPagination, buildMeta } from '../utils/pagination.js'
 import {
@@ -90,15 +94,32 @@ export const updateProduct = asyncHandler(async (req, res) => {
   return sendSuccess(res, { message: 'Product updated', data: { product } })
 })
 
-/* DELETE /products/:id (admin) — soft delete */
+/* DELETE /products/:id (admin) — permanently delete when nothing depends on
+ * it; archive (isActive=false) when order history references the product so
+ * past orders keep resolving. References in carts/wishlists/reviews are
+ * cleaned up on a hard delete — all scoped to this exact product id. */
 export const deleteProduct = asyncHandler(async (req, res) => {
-  const product = await Product.findByIdAndUpdate(
-    req.params.id,
-    { isActive: false },
-    { new: true },
-  )
+  const product = await Product.findById(req.params.id)
   if (!product) throw ApiError.notFound('Product not found')
-  return sendSuccess(res, { message: 'Product archived' })
+
+  const orderRefs = await Order.countDocuments({ 'items.product': product._id })
+  if (orderRefs > 0) {
+    product.isActive = false
+    await product.save()
+    return sendSuccess(res, {
+      message: `Product archived — ${orderRefs} order(s) reference it`,
+      data: { deleted: false, archived: true },
+    })
+  }
+
+  await Product.deleteOne({ _id: product._id })
+  await Cart.updateMany(
+    { 'items.product': product._id },
+    { $pull: { items: { product: product._id } } },
+  )
+  await Wishlist.updateMany({ products: product._id }, { $pull: { products: product._id } })
+  await Review.deleteMany({ product: product._id })
+  return sendSuccess(res, { message: 'Product deleted', data: { deleted: true, archived: false } })
 })
 
 /* PATCH /products/:id/stock (admin) */

@@ -21,6 +21,8 @@ export default function Products() {
   const [selected, setSelected] = useState([])
   const [editor, setEditor] = useState(null) // product object or null
   const [importOpen, setImportOpen] = useState(false)
+  const [confirmDel, setConfirmDel] = useState(null) // product pending delete confirmation
+  const [deleting, setDeleting] = useState(false)
   const writable = can('product.write')
 
   const load = () => {
@@ -46,6 +48,21 @@ export default function Products() {
   }
 
   const bulk = (update) => act(() => api.bulkProducts(selected, update), 'Bulk update applied').then(() => setSelected([]))
+
+  const confirmDelete = async () => {
+    if (!confirmDel || deleting) return
+    setDeleting(true)
+    try {
+      const res = await api.deleteProduct(confirmDel._id)
+      toast.success(res?.message || 'Product deleted')
+      setConfirmDel(null)
+      load()
+    } catch (e) {
+      toast.error(apiError(e))
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   const columns = [
     ...(writable
@@ -82,7 +99,7 @@ export default function Products() {
             <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
               <IconBtn name="edit" onClick={() => setEditor(r)} />
               <IconBtn name="copy" onClick={() => act(() => api.duplicateProduct(r._id), 'Duplicated')} />
-              <IconBtn name="trash" onClick={() => act(() => api.deleteProduct(r._id), 'Archived')} />
+              <IconBtn name="trash" onClick={() => setConfirmDel(r)} />
             </div>
           ),
         }]
@@ -130,6 +147,24 @@ export default function Products() {
 
       {editor && <ProductEditor product={editor} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); load() }} />}
       <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onDone={load} />
+
+      {confirmDel && (
+        <Modal open onClose={() => !deleting && setConfirmDel(null)} title="Delete product">
+          <div className="space-y-4">
+            <p className="text-sm text-graphite/75">
+              Permanently delete <span className="font-semibold text-ink">{confirmDel.title}</span>?
+              This also removes it from customer carts and wishlists. Products referenced by
+              existing orders are archived instead of deleted.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" disabled={deleting} onClick={() => setConfirmDel(null)}>Cancel</Button>
+              <Button variant="danger" size="sm" disabled={deleting} onClick={confirmDelete}>
+                {deleting ? 'Deleting…' : 'Delete product'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

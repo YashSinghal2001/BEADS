@@ -725,6 +725,44 @@ async function main() {
     r = await json(await fetch(api('/api/admin/activity'), { headers: adminHdr }))
     assert(r.status === 200 && r.body.data.activity.length >= 1, 'GET /admin/activity → audit trail recorded')
 
+    // ---- product deletion: hard delete + reference cleanup vs archive ----
+    // (a) product with NO orders → permanently deleted, cart line pulled
+    r = await json(
+      await fetch(api('/api/products'), {
+        method: 'POST',
+        headers: { ...adminHdr, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Deletable Test Bead', category: String(cats[0]._id), mrp: 10, salePrice: 5, stock: 3 }),
+      }),
+    )
+    assert(r.status === 201 && r.body.data.product?._id, 'delete-flow: setup product created')
+    const delId = r.body.data.product._id
+    r = await json(
+      await fetch(api('/api/cart'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ product: delId, quantity: 1 }),
+      }),
+    )
+    assert(r.status === 201, 'delete-flow: setup product added to a customer cart')
+    r = await json(await fetch(api(`/api/products/${delId}`), { method: 'DELETE', headers: adminHdr }))
+    assert(r.status === 200 && r.body.data?.deleted === true, 'DELETE /products/:id (no orders) → permanently deleted')
+    assert((await Product.findById(delId)) === null, 'delete-flow: product document is gone')
+    r = await json(await fetch(api('/api/cart'), { headers: { Authorization: `Bearer ${token}` } }))
+    assert(
+      r.status === 200 && !(r.body.data.items || []).some((it) => String(it.product?._id) === String(delId)),
+      'delete-flow: cart line for the deleted product was removed',
+    )
+    r = await json(await fetch(api(`/api/products/${delId}`), { method: 'DELETE', headers: adminHdr }))
+    assert(r.status === 404, 'DELETE /products/:id (already gone) → 404')
+
+    // (b) product WITH order references → archived, never hard-deleted
+    const ordersBefore = await Order.countDocuments({})
+    r = await json(await fetch(api(`/api/products/${pid}`), { method: 'DELETE', headers: adminHdr }))
+    assert(r.status === 200 && r.body.data?.archived === true, 'DELETE /products/:id (has orders) → archived instead')
+    const archived = await Product.findById(pid).lean()
+    assert(Boolean(archived) && archived.isActive === false, 'delete-flow: order-referenced product kept, isActive=false')
+    assert((await Order.countDocuments({})) === ordersBefore, 'delete-flow: orders untouched by archive')
+
     // 404
     r = await json(await fetch(api('/api/nope')))
     assert(r.status === 404, 'GET /api/nope → 404 notFound')
