@@ -33,6 +33,12 @@ const schema = z.object({
   SHIPROCKET_EMAIL: z.string().optional(),
   SHIPROCKET_PASSWORD: z.string().optional(),
   SHIPROCKET_WEBHOOK_TOKEN: z.string().optional(),
+  // Nickname of the pickup address configured in Shiprocket. Optional — when
+  // unset, the primary pickup address is auto-detected from the Shiprocket API.
+  SHIPROCKET_PICKUP_LOCATION: z.string().optional(),
+  SHIPROCKET_CHANNEL_ID: z.string().optional(),
+  // Test override for the Shiprocket API host — never set in production.
+  SHIPROCKET_API_BASE: z.string().optional(),
 
   COMPANY_GSTIN: z.string().default('29ABCDE1234F1Z5'),
   COMPANY_NAME: z.string().default('YS Creations'),

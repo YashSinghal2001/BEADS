@@ -80,6 +80,9 @@ const orderSchema = new Schema(
 
     shipmentTracking: {
       provider: { type: String, default: null },
+      // The provider's own order id (Shiprocket order_id) — distinct from the
+      // shipment id and from our orderNumber; used for idempotency/reference.
+      providerOrderId: { type: String, default: null },
       shipmentId: { type: String, default: null },
       awb: { type: String, default: null },
       courier: { type: String, default: null },

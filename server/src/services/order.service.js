@@ -1,6 +1,8 @@
 import { ApiError } from '../utils/ApiError.js'
 import { eventBus, ORDER_EVENTS } from './events.js'
 import { emailQueue } from './email.service.js'
+import { dispatchShipment } from './shipping.service.js'
+import { logger } from '../utils/logger.js'
 
 /* Allowed state machine for the order pipeline. */
 export const ORDER_TRANSITIONS = {
@@ -68,6 +70,15 @@ const queueEmail = (type) => (order) => {
 
 eventBus.on(ORDER_EVENTS.PAID, queueEmail('payment_success'))
 eventBus.on(ORDER_EVENTS.CONFIRMED, queueEmail('order_confirmation'))
+
+/* A confirmed order (prepaid after capture, COD at creation) is dispatched to
+ * Shiprocket automatically. dispatchShipment is idempotent — replayed events
+ * and races cannot create duplicate provider orders — and never throws. */
+eventBus.on(ORDER_EVENTS.CONFIRMED, (order) => {
+  dispatchShipment(order._id, { by: 'system' }).catch((err) =>
+    logger.error(`Shipment dispatch handler error for ${order.orderNumber}: ${err.message}`),
+  )
+})
 eventBus.on(ORDER_EVENTS.SHIPPED, queueEmail('shipped'))
 eventBus.on(ORDER_EVENTS.DELIVERED, queueEmail('delivered'))
 eventBus.on(ORDER_EVENTS.CANCELLED, queueEmail('cancelled'))

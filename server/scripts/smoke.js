@@ -39,6 +39,71 @@ async function main() {
 
   process.env.MONGODB_URI = mongod.getUri('ys-creations-test')
 
+  // ---- Shiprocket API stub -------------------------------------------------
+  // Runs before the app boots so shipping.service.js picks the base URL up at
+  // import time. Validates the payload contract and counts creates per
+  // order_id so duplicate-creation bugs fail the run.
+  const http = await import('node:http')
+  const srCreates = new Map() // order_id → count
+  let srSeq = 9000
+  let srFailNext = false
+  let srLastPayload = null
+  const SR_REQUIRED = [
+    'order_id', 'order_date', 'pickup_location', 'billing_customer_name',
+    'billing_address', 'billing_city', 'billing_pincode', 'billing_state',
+    'billing_country', 'billing_email', 'billing_phone', 'order_items',
+    'payment_method', 'sub_total', 'length', 'breadth', 'height', 'weight',
+  ]
+  const srStub = http.createServer((req, res) => {
+    let raw = ''
+    req.on('data', (c) => (raw += c))
+    req.on('end', () => {
+      const json = (code, obj) => {
+        res.writeHead(code, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(obj))
+      }
+      if (req.url === '/auth/login') return json(200, { token: 'sr-test-token' })
+      if (req.url === '/settings/company/pickup') {
+        return json(200, { data: { shipping_address: [{ pickup_location: 'Home', is_primary_location: 1, city: 'Delhi', pin_code: '110085' }] } })
+      }
+      if (req.url === '/orders/create/adhoc') {
+        if (srFailNext) {
+          srFailNext = false
+          return json(500, { message: 'stub-induced failure' })
+        }
+        const body = JSON.parse(raw || '{}')
+        const missing = SR_REQUIRED.filter((k) => body[k] === undefined || body[k] === null || body[k] === '')
+        if (missing.length) return json(422, { message: `missing: ${missing.join(',')}` })
+        if (!Array.isArray(body.order_items) || body.order_items.some((i) => !i.name || !i.sku || !i.units || i.selling_price == null)) {
+          return json(422, { message: 'bad order_items' })
+        }
+        srCreates.set(body.order_id, (srCreates.get(body.order_id) || 0) + 1)
+        srLastPayload = body
+        srSeq += 1
+        return json(200, { order_id: srSeq, shipment_id: srSeq + 100000, status: 'NEW' })
+      }
+      return json(404, { message: 'not found' })
+    })
+  })
+  await new Promise((r) => srStub.listen(0, '127.0.0.1', r))
+  process.env.SHIPROCKET_EMAIL = 'smoke@test.local'
+  process.env.SHIPROCKET_PASSWORD = 'smoke-password'
+  process.env.SHIPROCKET_API_BASE = `http://127.0.0.1:${srStub.address().port}`
+  // SHIPROCKET_PICKUP_LOCATION deliberately unset — the auto-detection path
+  // (primary pickup address from the provider) is what production uses.
+  delete process.env.SHIPROCKET_PICKUP_LOCATION
+
+  /* Poll until fn() is truthy or the timeout elapses. */
+  const waitFor = async (fn, ms = 4000) => {
+    const until = Date.now() + ms
+    for (;;) {
+      const v = await fn()
+      if (v) return v
+      if (Date.now() > until) return null
+      await new Promise((r) => setTimeout(r, 100))
+    }
+  }
+
   const { createApp } = await import('../src/app.js')
   const { connectDB, disconnectDB } = await import('../src/config/db.js')
   const { Category } = await import('../src/models/Category.js')
@@ -328,6 +393,85 @@ async function main() {
     r = await json(await fetch(api(`/api/orders/${orderId}/reorder`), { method: 'POST', headers: { Authorization: `Bearer ${token}` } }))
     assert(r.status === 200 && r.body.data.added >= 1, 'POST /orders/:id/reorder → items re-added')
 
+    // ---- Shiprocket auto-dispatch (event-driven, idempotent) ----
+    const shippingSvc = await import('../src/services/shipping.service.js')
+    const shipAddr = { fullName: 'Test User', phone: '9876543210', addressLine1: '1 Test St', city: 'Mumbai', state: 'MH', pincode: '400001' }
+    const buyerDoc = await User.findOne({ email: 'test@ysc.com' }).lean()
+    const mkOrder = (prod, overrides = {}) =>
+      Order.create({
+        user: buyerDoc._id,
+        items: [{ product: prod._id, title: prod.title, price: prod.salePrice, quantity: 1 }],
+        shippingAddress: shipAddr,
+        customerEmail: buyerDoc.email,
+        subtotal: prod.salePrice,
+        discount: 0,
+        shipping: 0,
+        tax: 0,
+        total: prod.salePrice,
+        paymentMethod: 'cod',
+        paymentStatus: 'paid',
+        orderStatus: 'confirmed',
+        ...overrides,
+      })
+
+    // (a) the confirmed COD order placed above was dispatched automatically
+    const codShipped = await waitFor(async () => {
+      const o = await Order.findById(orderId).lean()
+      return o?.shipmentTracking?.shipmentId ? o : null
+    })
+    assert(Boolean(codShipped), 'shiprocket: confirmed order auto-dispatched after checkout')
+    assert(
+      codShipped?.shipmentTracking?.provider === 'shiprocket' && Boolean(codShipped?.shipmentTracking?.providerOrderId),
+      'shiprocket: provider + provider order id persisted on the order',
+    )
+    assert(srCreates.get(codShipped?.orderNumber) === 1, 'shiprocket: exactly one provider order for the checkout order')
+    assert(codShipped?.timeline?.some((t) => /shiprocket order/i.test(t.note || '')), 'shiprocket: timeline records the provider order')
+    assert(srLastPayload?.pickup_location === 'Home', 'shiprocket: pickup_location auto-resolved from primary pickup address')
+    assert(
+      Boolean(srLastPayload?.billing_email) && Boolean(srLastPayload?.billing_phone) && srLastPayload?.billing_last_name !== undefined,
+      'shiprocket: payload carries billing email/phone/last name',
+    )
+
+    // (b) admin retry on an already-dispatched order → idempotent, no duplicate
+    r = await json(await fetch(api(`/api/orders/${orderId}/ship`), { method: 'POST', headers: { Authorization: `Bearer ${adminToken}` } }))
+    assert(r.status === 200 && /already/i.test(r.body.message || ''), 'shiprocket: /:id/ship on dispatched order → already exists')
+    assert(srCreates.get(codShipped?.orderNumber) === 1, 'shiprocket: admin retry created no duplicate')
+
+    // (c) pending (unpaid) order → dispatch refused everywhere
+    const prodForShip = await Product.findOne({ isActive: true, stock: { $gte: 5 } }).lean()
+    const pendingOrder = await mkOrder(prodForShip, { paymentMethod: 'razorpay', paymentStatus: 'pending', orderStatus: 'pending' })
+    let disp = await shippingSvc.dispatchShipment(pendingOrder._id, { by: 'system' })
+    assert(disp.ok === false && disp.skipped === true, 'shiprocket: pending order → dispatch refused (not eligible)')
+    r = await json(await fetch(api(`/api/orders/${pendingOrder._id}/ship`), { method: 'POST', headers: { Authorization: `Bearer ${adminToken}` } }))
+    assert(r.status === 400, 'shiprocket: /:id/ship on pending order → 400')
+    assert(!srCreates.has(pendingOrder.orderNumber), 'shiprocket: pending order never reached the provider')
+
+    // (d) provider failure → no partial state, claim released; admin retry works
+    const failOrder = await mkOrder(prodForShip)
+    srFailNext = true
+    disp = await shippingSvc.dispatchShipment(failOrder._id, { by: 'system' })
+    assert(disp.ok === false && !disp.skipped, 'shiprocket: provider 500 → dispatch reports failure safely')
+    let failDoc = await Order.findById(failOrder._id).lean()
+    assert(!failDoc.shipmentTracking.shipmentId && failDoc.shipmentTracking.status === null, 'shiprocket: failure leaves no partial state (claim released)')
+    r = await json(await fetch(api(`/api/orders/${failOrder._id}/ship`), { method: 'POST', headers: { Authorization: `Bearer ${adminToken}` } }))
+    failDoc = await Order.findById(failOrder._id).lean()
+    assert(r.status === 201 && Boolean(failDoc.shipmentTracking.shipmentId), 'shiprocket: admin retry after failure → created')
+    assert(srCreates.get(failDoc.orderNumber) === 1, 'shiprocket: failed attempt + retry → exactly one provider order')
+
+    // (e) concurrent dispatch of the same order → single creation
+    const dualOrder = await mkOrder(prodForShip)
+    const [d1, d2] = await Promise.all([
+      shippingSvc.dispatchShipment(dualOrder._id, { by: 'system' }),
+      shippingSvc.dispatchShipment(dualOrder._id, { by: 'system' }),
+    ])
+    assert([d1, d2].filter((x) => x.created).length === 1, 'shiprocket: concurrent dispatch → exactly one creator')
+    assert(srCreates.get(dualOrder.orderNumber) === 1, 'shiprocket: concurrent dispatch → one provider order')
+
+    // (f) admin order-detail envelope — the contract the admin UI unwraps
+    r = await json(await fetch(api(`/api/orders/${orderId}`), { headers: { Authorization: `Bearer ${adminToken}` } }))
+    assert(r.status === 200 && r.body.data?.order?.orderNumber === codShipped?.orderNumber, 'GET /orders/:id (admin) → { data: { order } } envelope')
+    assert(Boolean(r.body.data?.order?.shipmentTracking?.shipmentId), 'GET /orders/:id → Shiprocket references present in detail')
+
     // analytics (admin)
     r = await json(await fetch(api('/api/analytics/overview'), { headers: { Authorization: `Bearer ${adminToken}` } }))
     assert(r.status === 200 && typeof r.body.data.totalRevenue === 'number', 'GET /analytics/overview (admin) → 200')
@@ -417,6 +561,11 @@ async function main() {
       'race: single paid/confirmed timeline entries',
     )
     assert((await Payment.findById(A.p._id).lean()).status === 'captured', 'race: payment captured')
+    const raceShip = await waitFor(async () => {
+      const o = await Order.findById(A.o._id).lean()
+      return o?.shipmentTracking?.shipmentId ? o : null
+    })
+    assert(Boolean(raceShip) && srCreates.get(raceShip?.orderNumber) === 1, 'race: concurrent capture → exactly one Shiprocket order')
 
     // (2) webhook security + idempotency over HTTP
     const B = await mkPrepaid('order_SMK_HOOK')
@@ -442,6 +591,11 @@ async function main() {
       r.status === 200 && sH2.soldCount === sH1.soldCount && ptsH2 === ptsH0 + Math.floor(B.o.total / 100),
       'webhook: re-notify of captured payment → no duplicate side effects',
     )
+    const hookShip = await waitFor(async () => {
+      const o = await Order.findById(B.o._id).lean()
+      return o?.shipmentTracking?.shipmentId ? o : null
+    })
+    assert(Boolean(hookShip) && srCreates.get(hookShip?.orderNumber) === 1, 'webhook: replayed capture events → exactly one Shiprocket order')
 
     // (3) browser verification
     const C = await mkPrepaid('order_SMK_VER')
@@ -486,6 +640,16 @@ async function main() {
     assert(
       r.status === 200 && /already/i.test(r.body.message || '') && sV2.soldCount === sV1.soldCount && ptsV2 === ptsV0 + Math.floor(C.o.total / 100),
       'verify: repeat verification → already-verified no-op',
+    )
+    const verShip = await waitFor(async () => {
+      const o = await Order.findById(C.o._id).lean()
+      return o?.shipmentTracking?.shipmentId ? o : null
+    })
+    assert(Boolean(verShip) && srCreates.get(verShip?.orderNumber) === 1, 'verify: repeated verification → exactly one Shiprocket order')
+    const dOrderDoc = await Order.findById(D.o._id).lean()
+    assert(
+      !dOrderDoc.shipmentTracking?.shipmentId && !srCreates.has(dOrderDoc.orderNumber),
+      'failed payment order (D) → never dispatched to Shiprocket',
     )
 
     // (4) production must refuse to boot with Razorpay keys but no webhook secret
@@ -564,8 +728,16 @@ async function main() {
     // 404
     r = await json(await fetch(api('/api/nope')))
     assert(r.status === 404, 'GET /api/nope → 404 notFound')
+
+    // ---- Shiprocket global invariant: never a duplicate provider order ----
+    const srDups = [...srCreates.entries()].filter(([, n]) => n > 1)
+    assert(
+      srDups.length === 0,
+      `shiprocket: no duplicate provider orders across the entire run${srDups.length ? ` (dups: ${srDups.map(([k]) => k).join(',')})` : ''}`,
+    )
   } finally {
     server.close()
+    srStub.close()
     await disconnectDB()
     await mongod.stop()
   }

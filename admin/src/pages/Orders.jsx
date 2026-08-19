@@ -82,8 +82,43 @@ function OrderDetail({ id, canRefund, canWrite, onClose, onChange }) {
         <div className="rounded-xl bg-cream/60 p-3 text-sm">
           <p className="font-medium text-ink">{order.shippingAddress?.fullName}</p>
           <p className="text-graphite/70">{order.shippingAddress?.addressLine1}, {order.shippingAddress?.city}, {order.shippingAddress?.state} — {order.shippingAddress?.pincode} · {order.shippingAddress?.phone}</p>
+          {order.customerEmail && <p className="text-graphite/70">{order.customerEmail}</p>}
           {order.giftMessage && <p className="mt-1 text-gold-deep">🎁 {order.giftMessage}</p>}
         </div>
+
+        {/* Payment */}
+        <div className="rounded-xl border border-ink/10 p-3 text-sm">
+          <p className="mb-1.5 font-button text-xs font-semibold uppercase text-graphite/50">Payment</p>
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-graphite/75">
+            <span>Method: <span className="font-medium text-ink">{order.paymentMethod}</span></span>
+            <span>Status: <span className="font-medium text-ink">{order.paymentStatus}</span></span>
+            {order.payment?.gatewayPaymentId && <span>Payment ID: <span className="font-medium text-ink">{order.payment.gatewayPaymentId}</span></span>}
+            {order.payment?.gatewayOrderId && <span>Gateway order: <span className="font-medium text-ink">{order.payment.gatewayOrderId}</span></span>}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs text-graphite/60">
+            <span>Subtotal {formatINR(order.subtotal)}</span>
+            {order.discount > 0 && <span>Discount −{formatINR(order.discount)}</span>}
+            <span>Shipping {formatINR(order.shipping)}</span>
+            <span>Tax {formatINR(order.tax)}</span>
+            <span className="font-semibold text-ink">Total {formatINR(order.total)}</span>
+          </div>
+        </div>
+
+        {/* Shipping / Shiprocket */}
+        {(order.shipmentTracking?.shipmentId || order.shipmentTracking?.awb || order.shipmentTracking?.providerOrderId) && (
+          <div className="rounded-xl border border-ink/10 p-3 text-sm">
+            <p className="mb-1.5 font-button text-xs font-semibold uppercase text-graphite/50">Shipping · {order.shipmentTracking.provider || 'shiprocket'}</p>
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-graphite/75">
+              {order.shipmentTracking.providerOrderId && <span>Shiprocket order: <span className="font-medium text-ink">{order.shipmentTracking.providerOrderId}</span></span>}
+              {order.shipmentTracking.shipmentId && <span>Shipment: <span className="font-medium text-ink">{order.shipmentTracking.shipmentId}</span></span>}
+              {order.shipmentTracking.awb && <span>AWB: <span className="font-medium text-ink">{order.shipmentTracking.awb}</span></span>}
+              {order.shipmentTracking.courier && <span>Courier: <span className="font-medium text-ink">{order.shipmentTracking.courier}</span></span>}
+              {order.shipmentTracking.status && <span>Status: <span className="font-medium text-ink">{order.shipmentTracking.status}</span></span>}
+              {order.shipmentTracking.trackingUrl && <a className="text-gold-deep underline" href={order.shipmentTracking.trackingUrl} target="_blank" rel="noreferrer">Tracking</a>}
+              {order.shipmentTracking.label && <a className="text-gold-deep underline" href={order.shipmentTracking.label} target="_blank" rel="noreferrer">Label</a>}
+            </div>
+          </div>
+        )}
 
         <div className="space-y-2">
           {order.items.map((it, i) => (
@@ -115,6 +150,9 @@ function OrderDetail({ id, canRefund, canWrite, onClose, onChange }) {
         <div className="flex flex-wrap items-center gap-2 border-t border-ink/8 pt-4">
           <Button size="sm" variant="outline" onClick={() => api.downloadInvoice(order._id, order.orderNumber)}><Icon name="download" size={15} /> Invoice</Button>
           <Button size="sm" variant="outline" onClick={() => api.downloadLabel(order._id, order.orderNumber, 'packing')}><Icon name="download" size={15} /> Packing slip</Button>
+          {canWrite && !order.shipmentTracking?.shipmentId && ['confirmed', 'paid', 'processing', 'packed'].includes(order.orderStatus) && (
+            <Button size="sm" variant="primary" disabled={busy} onClick={() => run(() => api.shipOrder(order._id), 'Shiprocket order created')}>Send to Shiprocket</Button>
+          )}
           {canWrite && (
             <div className="ml-auto flex items-center gap-2">
               <Select value={next} onChange={(e) => setNext(e.target.value)} options={[{ value: '', label: 'Update status…' }, ...NEXT.map((s) => ({ value: s, label: s.replace(/_/g, ' ') }))]} />

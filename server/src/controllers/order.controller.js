@@ -300,16 +300,30 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
   return sendSuccess(res, { message: 'Order status updated', data: { order } })
 })
 
-/* POST /orders/:id/ship (admin) — create a Shiprocket shipment */
+/* POST /orders/:id/ship (admin) — idempotently create the Shiprocket order.
+ * Does NOT change orderStatus: actual shipping progress arrives via the
+ * Shiprocket webhook (or manual status updates). Safe to retry — an existing
+ * provider order is returned as-is instead of creating a duplicate. */
 export const createShipment = asyncHandler(async (req, res) => {
-  const order = await Order.findById(req.params.id)
-  if (!order) throw ApiError.notFound('Order not found')
-  const shipment = await shipping.createShipment(order)
-  order.shipmentTracking.provider = shipment.provider
-  order.shipmentTracking.shipmentId = shipment.shipmentId
-  order.shipmentTracking.status = shipment.status
-  await transitionOrder(order, 'shipped', { note: `Shipment ${shipment.shipmentId} created`, by: 'admin' })
-  return sendSuccess(res, { message: 'Shipment created', data: { order } })
+  const existing = await Order.findById(req.params.id)
+  if (!existing) throw ApiError.notFound('Order not found')
+
+  const result = await shipping.dispatchShipment(existing._id, { by: 'admin', reclaimStale: true })
+
+  if (result.ok && result.already) {
+    return sendSuccess(res, { message: 'Shiprocket order already exists', data: { order: await Order.findById(existing._id) } })
+  }
+  if (result.ok) {
+    return sendSuccess(res, { statusCode: 201, message: 'Shiprocket order created', data: { order: result.order } })
+  }
+  if (result.skipped) {
+    throw ApiError.badRequest(
+      result.reason === 'shipping-disabled'
+        ? 'Shipping integration is not enabled yet.'
+        : `Order is not eligible for shipment (status: ${existing.orderStatus})`,
+    )
+  }
+  throw new ApiError(502, 'Shipping provider request failed — try again')
 })
 
 /* GET /orders/:id/label (admin) — packing slip / label PDF */

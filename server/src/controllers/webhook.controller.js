@@ -90,16 +90,25 @@ export const shiprocketWebhook = asyncHandler(async (req, res) => {
 
   if (order) {
     const map = {
+      'picked up': 'shipped',
       shipped: 'shipped',
       'in transit': 'out_for_delivery',
+      'out for delivery': 'out_for_delivery',
       out_for_delivery: 'out_for_delivery',
       delivered: 'delivered',
-      rto: 'returned',
       returned: 'returned',
       cancelled: 'cancelled',
     }
-    const target = map[srStatus]
+    const target = srStatus.startsWith('rto') ? 'returned' : map[srStatus]
     order.shipmentTracking.status = srStatus
+    // Opportunistically capture shipment identifiers the payload carries.
+    if (awb && !order.shipmentTracking.awb) order.shipmentTracking.awb = String(awb)
+    const courier = body.courier_name || body.courier
+    if (courier && !order.shipmentTracking.courier) order.shipmentTracking.courier = String(courier)
+    if (body.etd && !order.shipmentTracking.estimatedDelivery) {
+      const etd = new Date(body.etd)
+      if (!Number.isNaN(etd.getTime())) order.shipmentTracking.estimatedDelivery = etd
+    }
     if (target && order.orderStatus !== target) {
       await transitionOrder(order, target, { note: `Shiprocket: ${srStatus}`, by: 'system', force: true })
     } else {

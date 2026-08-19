@@ -110,7 +110,7 @@ export const api = {
 
   // orders
   orders: (params) => client.get('/orders/admin/all', { params }).then(dm),
-  order: (id) => client.get(`/orders/${id}`).then(d),
+  order: (id) => client.get(`/orders/${id}`).then(d).then((x) => x?.order ?? x),
   updateOrderStatus: (id, body) => client.patch(`/orders/${id}/status`, body).then(d),
   refundOrder: (id, amount) => client.post(`/admin/orders/${id}/refund`, { amount }).then(d),
   shipOrder: (id) => client.post(`/orders/${id}/ship`).then(d),
